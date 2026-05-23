@@ -2,7 +2,7 @@
    Storage, ELO logic, share codes, bracket sim, route parsing.
    Exposed on window for cross-file <script> access. */
 
-const STORAGE_KEY = "elo-ranker-v1";
+const STORAGE_KEY = "elo-ranker-v2"; // bumped: clears stale local community lists
 
 const DEFAULT_STATE = {
   users: {},     // id -> { id, email, displayName, pwdHash, createdAt, isGuest }
@@ -310,78 +310,13 @@ function seedForUser(state, userId) {
   const pat = fakeRanker(ownListId, ownList.items, "Pat",
     ["Basil", "Mushroom", "Bell pepper", "Olives", "Anchovy", "Pepperoni", "Sausage", "Pineapple"], 5);
 
-  // 2) Public community lists — shared across users on this device.
-  // Already seeded? Don't duplicate.
-  const hasCommunity = Object.values(state.lists).some(l => l.isPublic && l.ownerName === "Community");
-  let communityRankers = {};
-  let communityLists = {};
-
-  if (!hasCommunity) {
-    const presets = [
-      {
-        name: "Pixar movies",
-        items: ["Toy Story", "Up", "Ratatouille", "WALL·E", "The Incredibles", "Finding Nemo", "Coco", "Inside Out", "Monsters Inc.", "Soul"],
-        rankers: [
-          { name: "Maya",  order: ["WALL·E", "Up", "Ratatouille", "Inside Out", "Coco", "Toy Story", "The Incredibles", "Finding Nemo", "Soul", "Monsters Inc."] },
-          { name: "Jules", order: ["The Incredibles", "Toy Story", "Finding Nemo", "Monsters Inc.", "Up", "Ratatouille", "Inside Out", "WALL·E", "Coco", "Soul"] },
-          { name: "Theo",  order: ["Coco", "Soul", "Inside Out", "Up", "Ratatouille", "WALL·E", "Toy Story", "Finding Nemo", "The Incredibles", "Monsters Inc."] },
-        ],
-        hoursAgo: 36,
-      },
-      {
-        name: "Coffee orders",
-        items: ["Espresso", "Flat white", "Cappuccino", "Cortado", "Latte", "Pour-over", "Cold brew", "Iced latte"],
-        rankers: [
-          { name: "Avery", order: ["Flat white", "Cortado", "Cappuccino", "Espresso", "Pour-over", "Latte", "Iced latte", "Cold brew"] },
-          { name: "Robin", order: ["Iced latte", "Cold brew", "Latte", "Cappuccino", "Flat white", "Cortado", "Espresso", "Pour-over"] },
-        ],
-        hoursAgo: 12,
-      },
-      {
-        name: "Breakfast foods",
-        items: ["Pancakes", "Bacon", "Avocado toast", "Cereal", "Bagels", "Croissant", "Oatmeal", "Eggs benedict", "Fruit bowl", "Yogurt"],
-        rankers: [
-          { name: "Nico", order: ["Eggs benedict", "Croissant", "Pancakes", "Bacon", "Bagels", "Avocado toast", "Yogurt", "Oatmeal", "Fruit bowl", "Cereal"] },
-          { name: "Lin",  order: ["Avocado toast", "Yogurt", "Fruit bowl", "Oatmeal", "Eggs benedict", "Croissant", "Pancakes", "Bagels", "Cereal", "Bacon"] },
-          { name: "Kit",  order: ["Pancakes", "Bacon", "Eggs benedict", "Bagels", "Croissant", "Cereal", "Avocado toast", "Yogurt", "Oatmeal", "Fruit bowl"] },
-          { name: "Sora", order: ["Croissant", "Pancakes", "Eggs benedict", "Bagels", "Avocado toast", "Yogurt", "Bacon", "Fruit bowl", "Oatmeal", "Cereal"] },
-        ],
-        hoursAgo: 4,
-      },
-      {
-        name: "Beach activities",
-        items: ["Swim", "Read a book", "Beach volleyball", "Build a sandcastle", "Surf", "Frisbee", "Snorkel", "Just nap"],
-        rankers: [
-          { name: "Em",   order: ["Snorkel", "Swim", "Read a book", "Just nap", "Build a sandcastle", "Frisbee", "Surf", "Beach volleyball"] },
-          { name: "Tomi", order: ["Surf", "Swim", "Beach volleyball", "Frisbee", "Snorkel", "Build a sandcastle", "Read a book", "Just nap"] },
-        ],
-        hoursAgo: 60,
-      },
-    ];
-
-    for (const p of presets) {
-      const lid = uid("lst");
-      communityLists[lid] = {
-        id: lid,
-        name: p.name,
-        items: p.items,
-        createdAt: Date.now() - 1000 * 60 * 60 * p.hoursAgo,
-        ownerId: null,
-        ownerName: "Community",
-        isPublic: true,
-      };
-      for (let i = 0; i < p.rankers.length; i++) {
-        const r = p.rankers[i];
-        const ranker = fakeRanker(lid, p.items, r.name, r.order, Math.max(1, p.hoursAgo - i * 2));
-        communityRankers[ranker.id] = ranker;
-      }
-    }
-  }
+  // Community lists come from Supabase (fetched on mount and on explore route).
+  // We no longer seed local fake community lists — they caused Explore to show
+  // different lists for guests vs logged-in users.
 
   state = {
     ...state,
-    rankers: { ...state.rankers, [sam.id]: sam, [pat.id]: pat, ...communityRankers },
-    lists: { ...state.lists, ...communityLists },
+    rankers: { ...state.rankers, [sam.id]: sam, [pat.id]: pat },
     seededFor: { ...(state.seededFor || {}), [userId]: true },
   };
   return state;
