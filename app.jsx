@@ -139,6 +139,19 @@ function App() {
     }
   }, [store]);
 
+  // Refresh public lists from Supabase whenever the user visits Explore
+  useEffect(() => {
+    if (route.name !== "explore") return;
+    dbGetPublicLists().then(({ data }) => {
+      if (!data) return;
+      setStore(s => {
+        const merged = { ...s.lists };
+        for (const r of data) merged[r.id] = rowToList(r);
+        return { ...s, lists: merged };
+      });
+    }).catch(console.error);
+  }, [route.name]);
+
   function toggleTheme() {
     setStore(s => ({ ...s, theme: s.theme === "dark" ? "light" : "dark" }));
   }
