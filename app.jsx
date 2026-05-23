@@ -91,9 +91,9 @@ function App() {
       if (event === "SIGNED_IN" && session) {
         // Ignore the SIGNED_IN event that fires right after an explicit sign-out
         if (signingOutRef.current) return;
-        // Navigate immediately — don't wait for the DB load, the home screen
-        // route refresh will populate data while the user is already looking at it.
-        if (mounted) navigate("/");
+        // Don't navigate — let the app re-render on whatever route the user was
+        // already on (e.g. a share link). If they were on /auth, the bounce effect
+        // below handles redirecting them to /.
         loadUserIntoStore(session.user); // intentionally not awaited
       }
 

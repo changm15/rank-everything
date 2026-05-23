@@ -44,7 +44,8 @@ function AuthScreen({ store, setStore, mode, onSessionLoaded }) {
       guest.id,
     );
     setStore(next);
-    navigate("/");
+    // Don't navigate — let the app re-render on the current route so share links
+    // land on the right page. If already on /auth the bounce effect sends to /.
   }
 
   return (
