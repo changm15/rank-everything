@@ -76,6 +76,7 @@ function HomeScreen({ store, setStore, currentUser, showToast }) {
       delete lastRanker[lastRankerKey(currentUser.id, id)];
       return { ...s, lists, rankers, lastRanker };
     });
+    dbDeleteList(id).catch(console.error);
   }
 
   return (
