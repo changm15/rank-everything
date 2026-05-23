@@ -639,46 +639,166 @@ function SavedScreen({ store, setStore, currentUser, showToast }) {
   );
 }
 
-/* ---------- List Stats (community view, no commitment to rank) ---------- */
-function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast }) {
+/* ---------- Collaborator invite screen ---------- */
+function CollabInviteScreen({ store, setStore, currentUser, listId, showToast }) {
   const list = store.lists[listId] || null;
+  const [joining, setJoining] = useState(false);
+  const [joined, setJoined] = useState(false);
 
-  // Hooks must always be called — no early returns before them
-  const allRankers = useMemo(
-    () => list ? Object.values(store.rankers).filter(r => r.listId === list.id && r.picks.length > 0) : [],
-    [store.rankers, listId, list]
-  );
-  const myRanker = list ? Object.values(store.rankers).find(r => r.listId === list.id && r.ownerId === currentUser.id) : null;
-  const saved = list ? isListSaved(store, currentUser.id, list.id) : false;
-
-  // List is fetched from DB in app.jsx route refresh; show a loading state meanwhile
+  // List is fetched in app.jsx route refresh; nothing extra needed here
   if (!list) {
     return <div className="container page"><div className="empty" style={{ color: "var(--muted)" }}>Loading…</div></div>;
   }
 
-  // Synthetic "Community" ranker pooled from everyone who has picks.
+  const isOwner    = list.ownerId === currentUser.id;
+  const isAlready  = !currentUser.isGuest && (list.collaboratorIds || []).includes(currentUser.id);
+  const isGuest    = currentUser.isGuest;
+  const inviteUrl  = collabInviteUrlFor(list);
+
+  if (isOwner) {
+    return (
+      <div className="container page">
+        <div className="page-head">
+          <div className="crumb"><a href={`#/stats/${list.id}`} style={{ textDecoration: "none" }}>← {list.name}</a></div>
+          <h1>Collaborator invite</h1>
+          <p className="lede">You own this list. Share the link below — anyone who clicks it can add new items to your list.</p>
+        </div>
+        <div className="share-card">
+          <div className="share-row">
+            <span className="hint" style={{ width: 38 }}>Link</span>
+            <span className="code" title={inviteUrl}>{inviteUrl}</span>
+            <button className="btn sm" onClick={() => copyToClipboard(inviteUrl).then(() => showToast("Invite link copied"))}>Copy</button>
+          </div>
+        </div>
+        <div style={{ marginTop: 16 }}>
+          <a className="btn primary" href={`#/stats/${list.id}`} style={{ textDecoration: "none" }}>Go to list →</a>
+        </div>
+      </div>
+    );
+  }
+
+  if (joined || isAlready) {
+    return (
+      <div className="container page">
+        <div className="page-head" style={{ textAlign: "center", maxWidth: 480, margin: "0 auto" }}>
+          <h1>You're a collaborator ✓</h1>
+          <p className="lede">You can add new items to <strong>{list.name}</strong> from the list page.</p>
+          <a className="btn primary" href={`#/stats/${list.id}`} style={{ textDecoration: "none" }}>Go to list →</a>
+        </div>
+      </div>
+    );
+  }
+
+  async function join() {
+    if (isGuest) { navigate("/auth/signup"); return; }
+    setJoining(true);
+    const { error } = await dbJoinAsCollaborator(list.id);
+    setJoining(false);
+    if (error) { showToast("Couldn't join: " + error.message); return; }
+    // Optimistically update local store
+    setStore(s => ({
+      ...s,
+      lists: {
+        ...s.lists,
+        [list.id]: { ...s.lists[list.id], collaboratorIds: [...(s.lists[list.id]?.collaboratorIds || []), currentUser.id] },
+      },
+    }));
+    setJoined(true);
+    showToast("You're now a collaborator!");
+  }
+
+  return (
+    <div className="container page">
+      <div className="page-head" style={{ textAlign: "center", maxWidth: 480, margin: "0 auto" }}>
+        <div className="hint" style={{ marginBottom: 8 }}>
+          {list.ownerName ? <>from <strong>{list.ownerName}</strong></> : "Collaboration invite"}
+        </div>
+        <h1 style={{ fontSize: "clamp(1.4rem, 5vw, 2rem)", marginBottom: 12 }}>{list.name}</h1>
+        <p className="lede" style={{ marginBottom: 24 }}>
+          You've been invited to collaborate on this list. Collaborators can add new items that everyone ranks.
+        </p>
+        {isGuest ? (
+          <>
+            <p className="hint" style={{ marginBottom: 16 }}>You need an account to collaborate on lists.</p>
+            <a className="btn primary" href="#/auth/signup" style={{ textDecoration: "none", fontSize: 16, padding: "12px 28px" }}>
+              Create account →
+            </a>
+          </>
+        ) : (
+          <button className="btn primary" style={{ fontSize: 16, padding: "12px 28px" }}
+                  onClick={join} disabled={joining}>
+            {joining ? "Joining…" : "Join as collaborator →"}
+          </button>
+        )}
+        <div style={{ marginTop: 16 }}>
+          <a className="hint" href={`#/stats/${list.id}`}
+             style={{ textDecoration: "underline", color: "inherit" }}>
+            Just browse the list instead
+          </a>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- List Stats (community view, no commitment to rank) ---------- */
+function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast }) {
+  const list = store.lists[listId] || null;
+
+  // ── ALL hooks first — no early returns before this block ──────────────────
+  const allRankers = useMemo(
+    () => list ? Object.values(store.rankers).filter(r => r.listId === list.id && r.picks.length > 0) : [],
+    [store.rankers, listId, list]
+  );
+  const myRanker = list
+    ? Object.values(store.rankers).find(r => r.listId === list.id && r.ownerId === currentUser.id) || null
+    : null;
+  const saved = list ? isListSaved(store, currentUser.id, list.id) : false;
+
   const combined = useMemo(
-    () => allRankers.length ? combinedFromRankers(list.items, allRankers) : null,
-    [list.items, allRankers]
+    () => (list && allRankers.length) ? combinedFromRankers(list.items, allRankers) : null,
+    [list, allRankers]
   );
   const ranked = useMemo(
-    () => combined ? rankItemsByElo(list.items, combined.elos) : rankItemsByElo(list.items, {}),
-    [list.items, combined]
+    () => list ? (combined ? rankItemsByElo(list.items, combined.elos) : rankItemsByElo(list.items, {})) : [],
+    [list, combined]
   );
+  const shareUrl = useMemo(() => list ? shareUrlFor(list) : "", [list]);
+
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [showResults,  setShowResults]  = useState(false);
+  const [newItemText,  setNewItemText]  = useState("");
+  const [addingItem,   setAddingItem]   = useState(false);
+  const [collabProfiles, setCollabProfiles] = useState([]);
+
+  const isOwner   = list ? list.ownerId === currentUser.id : false;
+  const isCollab  = list && !currentUser.isGuest
+    ? (list.collaboratorIds || []).includes(currentUser.id) : false;
+  const canEdit   = isOwner || isCollab;
+  const inviteUrl = list ? collabInviteUrlFor(list) : "";
+
+  // Fetch collaborator display names for the owner's management panel
+  useEffect(() => {
+    if (!isOwner || !list || !(list.collaboratorIds || []).length) {
+      setCollabProfiles([]);
+      return;
+    }
+    dbGetProfiles(list.collaboratorIds).then(({ data }) => {
+      if (data) setCollabProfiles(data);
+    });
+  }, [isOwner, (list?.collaboratorIds || []).join(",")]);
+  // ── End of hooks block ────────────────────────────────────────────────────
+
+  // List is fetched from DB in app.jsx route refresh
+  if (!list) {
+    return <div className="container page"><div className="empty" style={{ color: "var(--muted)" }}>Loading…</div></div>;
+  }
+
   const syntheticRanker = combined ? {
-    id: "community",
-    listId: list.id,
-    name: "Community",
-    picks: combined.picks,
-    elos: combined.elos,
-    wins: combined.wins,
-    losses: combined.losses,
+    id: "community", listId: list.id, name: "Community",
+    picks: combined.picks, elos: combined.elos, wins: combined.wins, losses: combined.losses,
     totalPairs: allPairs(list.items).length,
   } : null;
-
-  const shareUrl = useMemo(() => shareUrlFor(list), [list]);
-  const [showConfetti, setShowConfetti] = useState(false);
-  const [showResults, setShowResults] = useState(false);
 
   function setTab(t) { navigate(`/stats/${list.id}/${t}`); }
 
@@ -690,14 +810,10 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
       return;
     }
     const r = {
-      id: uid("rk"),
-      listId: list.id,
-      ownerId: currentUser.id,
+      id: uid("rk"), listId: list.id, ownerId: currentUser.id,
       name: currentUser.displayName || "You",
-      elos: {}, wins: {}, losses: {},
-      picks: [],
-      totalPairs: allPairs(list.items).length,
-      updatedAt: Date.now(),
+      elos: {}, wins: {}, losses: {}, picks: [],
+      totalPairs: allPairs(list.items).length, updatedAt: Date.now(),
     };
     setStore(s => ({
       ...s,
@@ -712,11 +828,75 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
     showToast(saved ? "Removed from Saved lists" : "Added to Saved lists");
   }
 
+  async function submitNewItem(e) {
+    e.preventDefault();
+    const trimmed = newItemText.trim();
+    if (!trimmed) return;
+    if ((list.items || []).map(s => s.toLowerCase()).includes(trimmed.toLowerCase())) {
+      showToast("That item is already on the list"); return;
+    }
+    setAddingItem(true);
+    const { error } = await dbAddListItem(list.id, trimmed);
+    setAddingItem(false);
+    if (error) { showToast("Error adding item: " + error.message); return; }
+    // Update local store optimistically
+    setStore(s => ({
+      ...s,
+      lists: {
+        ...s.lists,
+        [list.id]: { ...s.lists[list.id], items: [...(s.lists[list.id].items || []), trimmed] },
+      },
+    }));
+    setNewItemText("");
+    showToast(`"${trimmed}" added to the list`);
+  }
+
+  async function removeCollab(userId) {
+    const { error } = await dbRemoveCollaborator(list.id, userId);
+    if (error) { showToast("Error: " + error.message); return; }
+    setStore(s => ({
+      ...s,
+      lists: {
+        ...s.lists,
+        [list.id]: {
+          ...s.lists[list.id],
+          collaboratorIds: (s.lists[list.id].collaboratorIds || []).filter(id => id !== userId),
+        },
+      },
+    }));
+    showToast("Collaborator removed");
+    setCollabProfiles(p => p.filter(pr => pr.id !== userId));
+  }
+
   const myProgress = myRanker ? `${myRanker.picks.length}/${myRanker.totalPairs}` : null;
   const myDone = myRanker && myRanker.picks.length >= myRanker.totalPairs;
   const ctaLabel = !myRanker ? "Start ranking →" : (myDone ? "See your results →" : "Resume ranking →");
 
-  // ── Rank-first landing: shown when the user hasn't ranked this list yet ──────
+  // ── Add-item panel — shared between landing and full stats view ──────────
+  const AddItemPanel = canEdit ? (
+    <div className="share-card" style={{ marginTop: 18 }}>
+      <div style={{ fontWeight: 500, marginBottom: 10 }}>
+        {isOwner ? "Add an item" : "Suggest an item"}
+      </div>
+      <form className="row" style={{ gap: 8, alignItems: "stretch" }} onSubmit={submitNewItem}>
+        <input
+          className="input" style={{ flex: 1 }}
+          placeholder="New item name…"
+          value={newItemText}
+          onChange={e => setNewItemText(e.target.value)}
+          disabled={addingItem}
+        />
+        <button type="submit" className="btn primary" disabled={addingItem || !newItemText.trim()}>
+          {addingItem ? "Adding…" : "Add"}
+        </button>
+      </form>
+      <div className="hint" style={{ marginTop: 6 }}>
+        {list.items.length} items currently · new items go to the bottom and everyone can rank them
+      </div>
+    </div>
+  ) : null;
+
+  // ── Rank-first landing ───────────────────────────────────────────────────
   if (!myRanker && !showResults) {
     return (
       <div className="container page" data-screen-label="08 List Stats Landing">
@@ -742,11 +922,12 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
             </div>
           )}
         </div>
+        {AddItemPanel}
       </div>
     );
   }
 
-  // ── Full stats view (user has ranked, or clicked "peek") ─────────────────────
+  // ── Full stats view (user has ranked, or clicked "peek") ─────────────────
   return (
     <div className="container page" data-screen-label="08 List Stats">
       <div className="page-head">
@@ -755,8 +936,7 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
           <button className={`star-btn ${saved ? "on" : ""}`}
-                  onClick={toggleStar}
-                  aria-pressed={saved}
+                  onClick={toggleStar} aria-pressed={saved}
                   aria-label={saved ? "Remove from Saved lists" : "Save to Saved lists"}
                   title={saved ? "Remove from Saved lists" : "Save to Saved lists"}>
             <StarIcon filled={saved} />
@@ -769,6 +949,39 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
           {myProgress && <> · <span style={{ color: "var(--gold-fg)" }}>you: {myProgress}{myDone ? " ✓" : ""}</span></>}
         </p>
       </div>
+
+      {/* ── Owner: collaborator management ── */}
+      {isOwner && (
+        <div className="share-card" style={{ marginBottom: 18 }}>
+          <div className="share-head">
+            <div>
+              <div style={{ fontWeight: 500 }}>Collaborators</div>
+              <div className="hint">
+                {(list.collaboratorIds || []).length === 0
+                  ? "No collaborators yet. Share the invite link so others can add items."
+                  : `${(list.collaboratorIds || []).length} collaborator${(list.collaboratorIds || []).length === 1 ? "" : "s"} can add items.`}
+              </div>
+            </div>
+            <button className="btn sm"
+                    onClick={() => copyToClipboard(inviteUrl).then(() => showToast("Invite link copied"))}>
+              <LinkIcon /> Copy invite link
+            </button>
+          </div>
+          {collabProfiles.length > 0 && (
+            <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+              {collabProfiles.map(p => (
+                <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <div style={{ flex: 1, fontSize: 14 }}>{p.display_name || "Unknown"}</div>
+                  <button className="btn sm ghost" onClick={() => removeCollab(p.id)}>Remove</button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Add item (owner + collaborators) ── */}
+      {AddItemPanel && <div style={{ marginBottom: 18 }}>{AddItemPanel}</div>}
 
       <div className="share-card" style={{ marginBottom: 18 }}>
         <div className="share-head">
@@ -1654,8 +1867,15 @@ function StarIcon({ filled }) {
     </svg>
   );
 }
+function LinkIcon() {
+  return <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M6.5 9.5l3-3M5 8L3.5 9.5a2.5 2.5 0 003.5 3.5L8.5 11.5M11 8l1.5-1.5a2.5 2.5 0 00-3.5-3.5L7.5 4.5"/></svg>;
+}
+function CollabIcon() {
+  return <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
+}
 
 Object.assign(window, {
-  HomeScreen, CreateScreen, JoinScreen, RankingScreen, ResultsScreen, ExploreScreen, SavedScreen, ListStatsScreen,
-  Toast, Sun, Moon, Compass, StarIcon,
+  HomeScreen, CreateScreen, JoinScreen, RankingScreen, ResultsScreen, ExploreScreen, SavedScreen,
+  ListStatsScreen, CollabInviteScreen,
+  Toast, Sun, Moon, Compass, StarIcon, LinkIcon, CollabIcon,
 });

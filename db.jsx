@@ -85,6 +85,33 @@ async function dbDeleteList(listId) {
   return _sb.from("lists").delete().eq("id", listId);
 }
 
+/* ─────────────────────────── Collaborators ─────────────────────────── */
+
+// Join a list as a collaborator (authenticated users only, not the owner).
+async function dbJoinAsCollaborator(listId) {
+  return _sb.rpc("join_as_collaborator", { p_list_id: listId });
+}
+
+// Add a new item to a list (owner or collaborator).
+async function dbAddListItem(listId, item) {
+  return _sb.rpc("add_list_item", { p_list_id: listId, p_item: item });
+}
+
+// Owner removes a collaborator.
+async function dbRemoveCollaborator(listId, userId) {
+  return _sb.rpc("remove_collaborator", { p_list_id: listId, p_user_id: userId });
+}
+
+// Fetch a batch of profiles by user ID array (for showing collaborator names).
+async function dbGetProfiles(userIds) {
+  if (!userIds || !userIds.length) return { data: [], error: null };
+  const { data, error } = await _sb
+    .from("profiles")
+    .select("id, display_name")
+    .in("id", userIds);
+  return { data: data || [], error };
+}
+
 /* ─────────────────────────── Rankers ─────────────────────────── */
 
 async function dbGetUserRankers(userId) {
@@ -165,6 +192,7 @@ function rowToList(r) {
     ownerName: r.owner_name,
     isPublic: r.is_public,
     createdAt: new Date(r.created_at).getTime(),
+    collaboratorIds: r.collaborator_ids || [],
   };
 }
 
@@ -339,4 +367,5 @@ Object.assign(window, {
   dbGetFriends, dbGetFriendRequests, dbGetFriendshipBetween,
   dbSendFriendRequest, dbAcceptFriendRequest, dbRemoveFriendship,
   dbSearchUsers, dbGetUserProfile, dbGetUserPublicLists, dbGetUserRankerCount,
+  dbJoinAsCollaborator, dbAddListItem, dbRemoveCollaborator, dbGetProfiles,
 });

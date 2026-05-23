@@ -116,6 +116,12 @@ function shareUrlFor(list) {
   return `${base}#/stats/${list.id}`;
 }
 
+// Collaborator invite link — anyone who clicks this can join as a collaborator.
+function collabInviteUrlFor(list) {
+  const base = window.location.origin + window.location.pathname;
+  return `${base}#/collab-invite/${list.id}`;
+}
+
 /* ---------- Pairs ---------- */
 function allPairs(items) {
   const out = [];
@@ -258,6 +264,7 @@ function parseRoute() {
   if (parts[0] === "explore") return { name: "explore", filter: parts[1] || "all" };
   if (parts[0] === "saved") return { name: "saved" };
   if (parts[0] === "stats" && parts[1]) return { name: "stats", listId: parts[1], tab: parts[2] || "rankings" };
+  if (parts[0] === "collab-invite" && parts[1]) return { name: "collab-invite", listId: parts[1] };
   if (parts[0] === "join") return { name: "join", code: parts[1] || "" };
   if (parts[0] === "view" && parts[1]) return { name: "view", code: parts[1] };
   if (parts[0] === "rank" && parts[1]) return { name: "rank", rankerId: parts[1] };
@@ -468,7 +475,7 @@ function formatRelTime(ms) {
 /* expose */
 Object.assign(window, {
   STORAGE_KEY, DEFAULT_STATE, loadState, saveState,
-  uid, encodeShare, decodeShare, shareUrlFor,
+  uid, encodeShare, decodeShare, shareUrlFor, collabInviteUrlFor,
   allPairs, shuffle,
   ELO_START, K, computeElos, winProb, recordFromPicks,
   buildBracket, simulateBracket, makeBracketOrder,

@@ -207,6 +207,18 @@ function App() {
         suppressSyncRef.current = true;
 
         // stats + results can be loaded without a signed-in user (guest results link)
+        if (route.name === "collab-invite" && route.listId) {
+          // Fetch the list so CollabInviteScreen can show the name immediately
+          if (!store.lists[route.listId]) {
+            const { data: listData } = await dbGetListById(route.listId);
+            if (listData) {
+              const list = rowToList(listData);
+              setStoreState(s => ({ ...s, lists: { ...s.lists, [list.id]: list } }));
+            }
+          }
+          return;
+        }
+
         if (route.name === "stats" && route.listId) {
           // Fetch the list itself if it's not already in the store
           if (!store.lists[route.listId]) {
@@ -370,6 +382,9 @@ function App() {
         break;
       case "stats":
         screen = <ListStatsScreen store={store} setStore={setStore} currentUser={currentUser} listId={route.listId} tab={route.tab || "rankings"} showToast={showToast} />;
+        break;
+      case "collab-invite":
+        screen = <CollabInviteScreen store={store} setStore={setStore} currentUser={currentUser} listId={route.listId} showToast={showToast} />;
         break;
       case "join":
         screen = <JoinScreen store={store} setStore={setStore} currentUser={currentUser} initialCode={route.code} />;
