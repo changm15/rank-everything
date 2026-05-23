@@ -246,11 +246,11 @@ function App() {
   async function signOut() {
     const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
     if (currentUser && !currentUser.isGuest) {
-      await dbSignOut(); // triggers SIGNED_OUT event → resets store
-    } else {
-      setStore(s => ({ ...s, currentUserId: null }));
-      navigate("/auth");
+      await dbSignOut().catch(console.error);
     }
+    // Reset store and navigate immediately — don't wait for the auth event
+    setStoreState({ ...DEFAULT_STATE });
+    navigate("/auth");
   }
 
   const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
