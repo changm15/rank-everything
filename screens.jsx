@@ -678,12 +678,12 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
 
   const shareUrl = useMemo(() => shareUrlFor(list), [list]);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showResults, setShowResults] = useState(false);
 
   function setTab(t) { navigate(`/stats/${list.id}/${t}`); }
 
   function rankIt() {
     if (myRanker) {
-      const ready = canShowResults(list.items, myRanker.picks);
       const done = myRanker.picks.length >= myRanker.totalPairs;
       if (done) navigate(`/results/${myRanker.id}`);
       else navigate(`/rank/${myRanker.id}`);
@@ -712,12 +712,41 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
     showToast(saved ? "Removed from Saved lists" : "Added to Saved lists");
   }
 
-  const myProgress = myRanker
-    ? `${myRanker.picks.length}/${myRanker.totalPairs}`
-    : null;
+  const myProgress = myRanker ? `${myRanker.picks.length}/${myRanker.totalPairs}` : null;
   const myDone = myRanker && myRanker.picks.length >= myRanker.totalPairs;
-  const ctaLabel = !myRanker ? "Rank it yourself →" : (myDone ? "See your results →" : "Resume ranking →");
+  const ctaLabel = !myRanker ? "Start ranking →" : (myDone ? "See your results →" : "Resume ranking →");
 
+  // ── Rank-first landing: shown when the user hasn't ranked this list yet ──────
+  if (!myRanker && !showResults) {
+    return (
+      <div className="container page" data-screen-label="08 List Stats Landing">
+        <div className="page-head" style={{ textAlign: "center", maxWidth: 480, margin: "0 auto" }}>
+          <div className="hint" style={{ marginBottom: 8 }}>
+            {list.ownerName ? <>from <strong>{list.ownerName}</strong></> : "Community list"}
+            {allRankers.length > 0 && <> · {allRankers.length} {allRankers.length === 1 ? "person has" : "people have"} ranked this</>}
+          </div>
+          <h1 style={{ fontSize: "clamp(1.6rem, 5vw, 2.4rem)", marginBottom: 12 }}>{list.name}</h1>
+          <p className="lede" style={{ marginBottom: 24 }}>
+            {list.items.length} items — pick your favourite in each head-to-head matchup.
+            {allRankers.length > 0 ? " See how your opinion stacks up against everyone else's when you're done." : " Be the first to set the record straight."}
+          </p>
+          <button className="btn primary" style={{ fontSize: 16, padding: "12px 28px" }} onClick={rankIt}>
+            Start ranking →
+          </button>
+          {allRankers.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <button className="hint" style={{ background: "none", border: "none", cursor: "pointer", textDecoration: "underline", color: "inherit" }}
+                      onClick={() => setShowResults(true)}>
+                peek at existing results first
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Full stats view (user has ranked, or clicked "peek") ─────────────────────
   return (
     <div className="container page" data-screen-label="08 List Stats">
       <div className="page-head">
@@ -770,7 +799,7 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
           {tab === "compare" && <CompareTab list={list} myRankerId={myRanker ? myRanker.id : null} allRankers={allRankers} />}
         </>
       ) : (
-        <div className="empty">No rankings yet — click <strong>Rank it yourself</strong> above to start.</div>
+        <div className="empty">No rankings yet — click <strong>{ctaLabel}</strong> above to start.</div>
       )}
 
       {showConfetti && <Confetti onDone={() => setShowConfetti(false)} />}
