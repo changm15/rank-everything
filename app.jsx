@@ -139,18 +139,105 @@ function App() {
     }
   }, [store]);
 
-  // Refresh public lists from Supabase whenever the user visits Explore
+  // Refresh data from Supabase on every route change based on what each screen needs
   useEffect(() => {
-    if (route.name !== "explore") return;
-    dbGetPublicLists().then(({ data }) => {
-      if (!data) return;
-      setStore(s => {
-        const merged = { ...s.lists };
-        for (const r of data) merged[r.id] = rowToList(r);
-        return { ...s, lists: merged };
-      });
-    }).catch(console.error);
-  }, [route.name]);
+    const user = store.currentUserId ? store.users[store.currentUserId] : null;
+    if (!user || user.isGuest) return;
+    const userId = user.id;
+
+    async function refresh() {
+      suppressSyncRef.current = true;
+      try {
+        switch (route.name) {
+          case "home": {
+            // Refresh user's own lists + rankers
+            const [{ data: userLists }, { data: rankerRows }] = await Promise.all([
+              dbGetUserLists(userId),
+              dbGetUserRankers(userId),
+            ]);
+            setStore(s => {
+              const lists = { ...s.lists };
+              for (const r of (userLists || [])) lists[r.id] = rowToList(r);
+              const rankers = { ...s.rankers };
+              const lastRanker = { ...s.lastRanker };
+              for (const r of (rankerRows || [])) {
+                rankers[r.id] = rowToRanker(r);
+                const key = lastRankerKey(userId, r.list_id);
+                if (!lastRanker[key] || rowToRanker(r).updatedAt > (rankers[lastRanker[key]]?.updatedAt || 0)) {
+                  lastRanker[key] = r.id;
+                }
+              }
+              return { ...s, lists, rankers, lastRanker };
+            });
+            break;
+          }
+
+          case "explore": {
+            // Refresh all public lists
+            const { data: publicLists } = await dbGetPublicLists();
+            setStore(s => {
+              const lists = { ...s.lists };
+              for (const r of (publicLists || [])) lists[r.id] = rowToList(r);
+              return { ...s, lists };
+            });
+            break;
+          }
+
+          case "saved": {
+            // Refresh saved list IDs + the actual list rows
+            const { data: savedIds } = await dbGetSavedListIds(userId);
+            const { data: publicLists } = await dbGetPublicLists();
+            setStore(s => {
+              const lists = { ...s.lists };
+              for (const r of (publicLists || [])) lists[r.id] = rowToList(r);
+              return {
+                ...s,
+                lists,
+                savedLists: { ...s.savedLists, [userId]: savedIds || [] },
+              };
+            });
+            break;
+          }
+
+          case "stats": {
+            // Refresh all rankers for this list so leaderboard is current
+            if (!route.listId) break;
+            const { data: listRankers } = await dbGetListRankers(route.listId);
+            setStore(s => {
+              const rankers = { ...s.rankers };
+              for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
+              return { ...s, rankers };
+            });
+            break;
+          }
+
+          case "results": {
+            // Refresh the specific ranker + its list's rankers for the leaderboard
+            if (!route.rankerId) break;
+            const myRanker = store.rankers[route.rankerId];
+            const listId = myRanker?.listId;
+            if (!listId) break;
+            const { data: listRankers } = await dbGetListRankers(listId);
+            setStore(s => {
+              const rankers = { ...s.rankers };
+              for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
+              return { ...s, rankers };
+            });
+            break;
+          }
+
+          default:
+            break;
+        }
+      } catch (err) {
+        console.error("[db] Route refresh failed:", err);
+      } finally {
+        suppressSyncRef.current = false;
+      }
+    }
+
+    refresh();
+  }, [route.name, route.listId, route.rankerId]);
 
   function toggleTheme() {
     setStore(s => ({ ...s, theme: s.theme === "dark" ? "light" : "dark" }));
