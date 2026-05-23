@@ -105,6 +105,15 @@ async function dbGetListRankers(listId) {
   return { data: data || [], error };
 }
 
+async function dbGetRankerById(rankerId) {
+  const { data, error } = await _sb
+    .from("rankers")
+    .select("*")
+    .eq("id", rankerId)
+    .single();
+  return { data, error };
+}
+
 async function dbUpsertRanker(ranker, userId) {
   const row = {
     id: ranker.id,
@@ -323,7 +332,7 @@ Object.assign(window, {
   _sb,
   dbSignUp, dbSignIn, dbSignOut, dbGetSession, dbOnAuthChange,
   dbGetUserLists, dbGetPublicLists, dbGetListById, dbUpsertList, dbDeleteList,
-  dbGetUserRankers, dbGetListRankers, dbUpsertRanker,
+  dbGetUserRankers, dbGetListRankers, dbGetRankerById, dbUpsertRanker,
   dbGetSavedListIds, dbSaveList, dbUnsaveList,
   dbLoadUserStore,
   rowToList, rowToRanker,

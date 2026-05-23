@@ -113,12 +113,30 @@ function App() {
   useEffect(() => {
     if (suppressSyncRef.current) return;
     const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
-    if (!currentUser || currentUser.isGuest) return;
+    if (!currentUser) return;
 
     const prev = prevStoreRef.current;
     prevStoreRef.current = store;
     if (!prev) return;
 
+    // ── Guest: only sync their rankers (no account, no lists/saved) ──────────
+    if (currentUser.isGuest) {
+      const prevRankers = prev.rankers || {};
+      const nextRankers = store.rankers || {};
+      for (const id of Object.keys(nextRankers)) {
+        if (nextRankers[id].ownerId !== currentUser.id) continue;
+        if (
+          !prevRankers[id] ||
+          prevRankers[id].picks?.length !== nextRankers[id].picks?.length
+        ) {
+          // Save with null owner_id — the ranker ID is the only key guests need
+          dbUpsertRanker(nextRankers[id], null).catch(console.error);
+        }
+      }
+      return;
+    }
+
+    // ── Authenticated: full sync ───────────────────────────────────────────────
     const userId = currentUser.id;
 
     // Sync changed lists
@@ -184,6 +202,54 @@ function App() {
 
         suppressSyncRef.current = true;
 
+        // stats + results can be loaded without a signed-in user (guest results link)
+        if (route.name === "stats" && route.listId) {
+          // Fetch the list itself if it's not already in the store
+          if (!store.lists[route.listId]) {
+            const { data: listData } = await dbGetListById(route.listId);
+            if (listData) {
+              const list = rowToList(listData);
+              setStoreState(s => ({ ...s, lists: { ...s.lists, [list.id]: list } }));
+            }
+          }
+          const { data: listRankers } = await dbGetListRankers(route.listId);
+          setStoreState(s => {
+            const rankers = { ...s.rankers };
+            for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
+            return { ...s, rankers };
+          });
+          return;
+        }
+
+        if (route.name === "results" && route.rankerId) {
+          // Fetch the ranker from DB if not in store (e.g. guest returning via bookmarked link)
+          let myRanker = store.rankers[route.rankerId];
+          if (!myRanker) {
+            const { data: rankerData } = await dbGetRankerById(route.rankerId);
+            if (rankerData) {
+              myRanker = rowToRanker(rankerData);
+              setStoreState(s => ({ ...s, rankers: { ...s.rankers, [myRanker.id]: myRanker } }));
+            }
+          }
+          if (myRanker?.listId) {
+            // Fetch the list if not in store
+            if (!store.lists[myRanker.listId]) {
+              const { data: listData } = await dbGetListById(myRanker.listId);
+              if (listData) {
+                const list = rowToList(listData);
+                setStoreState(s => ({ ...s, lists: { ...s.lists, [list.id]: list } }));
+              }
+            }
+            const { data: listRankers } = await dbGetListRankers(myRanker.listId);
+            setStoreState(s => {
+              const rankers = { ...s.rankers };
+              for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
+              return { ...s, rankers };
+            });
+          }
+          return;
+        }
+
         // Remaining routes need a signed-in user
         if (!userId) return;
 
@@ -221,26 +287,7 @@ function App() {
           });
         }
 
-        if (route.name === "stats" && route.listId) {
-          const { data: listRankers } = await dbGetListRankers(route.listId);
-          setStoreState(s => {
-            const rankers = { ...s.rankers };
-            for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
-            return { ...s, rankers };
-          });
-        }
-
-        if (route.name === "results" && route.rankerId) {
-          const myRanker = store.rankers[route.rankerId];
-          if (myRanker?.listId) {
-            const { data: listRankers } = await dbGetListRankers(myRanker.listId);
-            setStoreState(s => {
-              const rankers = { ...s.rankers };
-              for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
-              return { ...s, rankers };
-            });
-          }
-        }
+        // stats and results are handled before the userId check above
 
       } catch (err) {
         console.error("[db] Route refresh failed:", err);

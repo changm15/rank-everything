@@ -91,10 +91,11 @@ function createGuest() {
 }
 
 /* ---------- Share codes ---------- */
-// base64url-encoded JSON { listId, listName, items }
-// Items are embedded so the link is self-contained — no DB fetch, no auth, no RLS issues.
+// Share links go directly to the list's stats page using the list ID.
+// The list is fetched from Supabase (RLS allows any read-by-ID).
+// encodeShare / decodeShare are kept for manual code-paste in the Join screen.
 function encodeShare(list) {
-  const payload = JSON.stringify({ listId: list.id, listName: list.name, items: list.items || [] });
+  const payload = JSON.stringify({ listId: list.id, listName: list.name });
   const b64 = btoa(unescape(encodeURIComponent(payload)));
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
@@ -105,15 +106,14 @@ function decodeShare(code) {
     const json = decodeURIComponent(escape(atob(s)));
     const parsed = JSON.parse(json);
     if (!parsed.listId) return null;
-    return parsed; // { listId, listName, items[] }
+    return parsed;
   } catch (e) { return null; }
 }
 
-// Build a full URL that opens the join screen with this list pre-loaded.
+// Share link goes straight to the list stats page — no join screen needed.
 function shareUrlFor(list) {
-  const code = encodeShare(list);
   const base = window.location.origin + window.location.pathname;
-  return `${base}#/join/${code}`;
+  return `${base}#/stats/${list.id}`;
 }
 
 /* ---------- Pairs ---------- */

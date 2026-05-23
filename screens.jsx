@@ -293,55 +293,39 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
   const [code, setCode] = useState(initialCode || "");
   const [displayName, setDisplayName] = useState(currentUser?.displayName || "");
   const [err, setErr] = useState("");
+  const [fetchedList, setFetchedList] = useState(null);
+  const [fetching, setFetching] = useState(false);
 
   const preview = useMemo(() => {
     if (!code.trim()) return null;
     return decodeShare(code.trim());
   }, [code]);
 
-  // Build the list from the share code directly (items are embedded in the code).
-  // Fall back to the local store in case of an old-format code without items.
-  const list = useMemo(() => {
-    if (!preview) return null;
-    // Prefer local store (has any updates the owner made since sharing)
-    if (store.lists[preview.listId]) return store.lists[preview.listId];
-    // New-format codes embed items directly — no DB fetch needed, works for
-    // private lists and unauthenticated guests alike.
-    if (preview.items && preview.items.length > 0) {
-      return {
-        id: preview.listId,
-        name: preview.listName,
-        items: preview.items,
-        isPublic: false,
-        ownerId: null,
-        createdAt: Date.now(),
-      };
-    }
-    return null;
-  }, [preview, store.lists]);
+  const localList = preview && store.lists[preview.listId];
+  const list = localList || fetchedList;
 
-  // Merge the decoded list into the store so the RankingScreen can find it later.
+  // Fetch from DB when the list isn't in the local store
   useEffect(() => {
-    if (list && !store.lists[list.id]) {
-      setStore(s => ({ ...s, lists: { ...s.lists, [list.id]: list } }));
-    }
-  }, [list?.id]);
+    if (!preview || localList) { setFetchedList(null); return; }
+    let cancelled = false;
+    setFetching(true);
+    dbGetListById(preview.listId).then(({ data }) => {
+      if (cancelled) return;
+      setFetching(false);
+      if (!data) return;
+      const converted = rowToList(data);
+      setFetchedList(converted);
+      setStore(s => ({ ...s, lists: { ...s.lists, [converted.id]: converted } }));
+    });
+    return () => { cancelled = true; };
+  }, [preview?.listId, !!localList]);
 
   function submit(e) {
     e.preventDefault();
     setErr("");
     if (!preview) { setErr("That code doesn't look right."); return; }
     if (!displayName.trim()) { setErr("Add a display name."); return; }
-    if (!list) {
-      setErr("Couldn't read that share code. Make sure you copied the full code.");
-      return;
-    }
-    // Ensure the list is in the store before navigating
-    const ensuredStore = store.lists[list.id]
-      ? null
-      : { lists: { ...store.lists, [list.id]: list } };
-    if (ensuredStore) setStore(s => ({ ...s, ...ensuredStore }));
-
+    if (!list) { setErr("Couldn't find that list. Check the code and try again."); return; }
     const ranker = {
       id: uid("rk"),
       listId: list.id,
@@ -354,7 +338,6 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
     };
     setStore(s => ({
       ...s,
-      lists: { ...s.lists, [list.id]: list },
       rankers: { ...s.rankers, [ranker.id]: ranker },
       lastRanker: { ...s.lastRanker, [lastRankerKey(currentUser.id, list.id)]: ranker.id },
     }));
@@ -366,7 +349,7 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
       <div className="page-head">
         <div className="crumb"><a href="#/" style={{ textDecoration: "none" }}>← Lists</a> / Join</div>
         <h1>Join a list</h1>
-        <p className="lede">Got a link from a friend? Settle the debate — your picks are yours, theirs are theirs. See who actually has better taste.</p>
+        <p className="lede">Got a share code from a friend? Paste it below to start ranking.</p>
       </div>
 
       <form className="card" onSubmit={submit}>
@@ -375,8 +358,9 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
             <label className="label" htmlFor="code">Share code</label>
             <input id="code" className="input mono" placeholder="paste code here"
                    value={code} onChange={e => setCode(e.target.value)} autoFocus />
+            {preview && fetching && <div className="hint">Looking up list…</div>}
             {preview && list && <div className="hint">Found: <strong>{list.name}</strong> · {list.items.length} items</div>}
-            {preview && !list && <div className="hint err">Couldn&rsquo;t read that code. Try copying it again.</div>}
+            {preview && !list && !fetching && <div className="hint err">Couldn&rsquo;t find that list. Check the code and try again.</div>}
           </div>
           <div className="field">
             <label className="label" htmlFor="dn">Your display name</label>
@@ -386,7 +370,7 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
           {err && <div className="hint err">{err}</div>}
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button type="button" className="btn ghost" onClick={() => navigate("/")}>Cancel</button>
-            <button type="submit" className="btn primary" disabled={preview && !list}>Start ranking →</button>
+            <button type="submit" className="btn primary" disabled={fetching || (preview && !list)}>Start ranking →</button>
           </div>
         </div>
       </form>
@@ -657,8 +641,9 @@ function SavedScreen({ store, setStore, currentUser, showToast }) {
 /* ---------- List Stats (community view, no commitment to rank) ---------- */
 function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast }) {
   const list = store.lists[listId];
+  // List is fetched from DB in app.jsx route refresh; show a loading state meanwhile
   if (!list) {
-    return <div className="container page"><div className="empty">List not found.</div></div>;
+    return <div className="container page"><div className="empty" style={{ color: "var(--muted)" }}>Loading…</div></div>;
   }
 
   const allRankers = useMemo(
@@ -1042,8 +1027,9 @@ function buildQueue(list, ranker) {
 function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast }) {
   const ranker = store.rankers[rankerId];
   const list = ranker && store.lists[ranker.listId];
+  // Data is fetched from DB in app.jsx route refresh; show a brief loading state
   if (!ranker || !list) {
-    return <div className="container page"><div className="empty">Ranker not found.</div></div>;
+    return <div className="container page"><div className="empty" style={{ color: "var(--muted)" }}>Loading…</div></div>;
   }
 
   const ranked = useMemo(() => rankItemsByElo(list.items, ranker.elos || {}), [list.items, ranker.elos]);
@@ -1085,6 +1071,8 @@ function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast 
     copyToClipboard(shareUrl).then(() => showToast("Link copied"));
   }
 
+  const resultsUrl = `${window.location.origin}${window.location.pathname}#/results/${rankerId}`;
+
   return (
     <div className="container page" data-screen-label="04 Results">
       <div className="page-head">
@@ -1096,6 +1084,19 @@ function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast 
             : <>Still deciding — {ranker.picks.length} of {totalPairs} matchups in. Keep going to get a clearer verdict.</>}
         </p>
       </div>
+
+      {currentUser?.isGuest && (
+        <div className="card" style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontWeight: 500, marginBottom: 2 }}>Bookmark your results</div>
+            <div className="hint">You&rsquo;re in a guest session — save this link to come back to your rankings later.</div>
+          </div>
+          <button className="btn sm" onClick={() => copyToClipboard(resultsUrl).then(() => showToast("Results link copied"))}>
+            Copy link
+          </button>
+          <a className="btn sm" href="#/auth/signup" style={{ textDecoration: "none" }}>Create account →</a>
+        </div>
+      )}
 
       <div className="share-card" style={{ marginBottom: 18 }}>
         <div className="share-head">
