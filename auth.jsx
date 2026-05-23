@@ -1,46 +1,50 @@
 /* RankEverything — Auth screen + user menu
-   Local-only auth (no backend). Honest disclaimer surfaced to the user. */
+   Uses Supabase Auth for real sign-up / sign-in. */
 
 const { useState: useStateA, useEffect: useEffectA, useRef: useRefA } = React;
 
-function AuthScreen({ store, setStore, mode, sharePreview }) {
-  // mode: "signin" | "signup"
+function AuthScreen({ store, setStore, mode, onSessionLoaded }) {
   const [tab, setTab] = useStateA(mode === "signup" ? "signup" : "signin");
   const [email, setEmail] = useStateA("");
   const [pwd, setPwd] = useStateA("");
   const [name, setName] = useStateA("");
   const [err, setErr] = useStateA("");
+  const [loading, setLoading] = useStateA(false);
 
-  // If the URL pointed us here via a share link, surface that.
-  // (No-op for now; share routes don't gate on auth.)
-
-  function finalizeLogin(user, baseState) {
-    const next = seedForUser({ ...baseState, currentUserId: user.id }, user.id);
-    setStore(next);
-    navigate("/");
+  async function onSignin(e) {
+    e.preventDefault();
+    setErr(""); setLoading(true);
+    const { data, error } = await dbSignIn(email, pwd);
+    setLoading(false);
+    if (error) { setErr(error.message); return; }
+    // Session change is picked up by onAuthStateChange in app.jsx — no need to setStore here.
   }
 
-  function onSignin(e) {
-    e.preventDefault(); setErr("");
-    const user = findUserByEmail(store, email);
-    if (!user || user.isGuest) { setErr("No account with that email."); return; }
-    if (!verifyPassword(user, pwd)) { setErr("Wrong password."); return; }
-    finalizeLogin(user, store);
-  }
-  function onSignup(e) {
-    e.preventDefault(); setErr("");
-    try {
-      const user = createUser(store, { email, password: pwd, displayName: name || email.split("@")[0] });
-      const next = { ...store, users: { ...store.users, [user.id]: user } };
-      finalizeLogin(user, next);
-    } catch (ex) {
-      setErr(ex.message || "Could not create that account.");
+  async function onSignup(e) {
+    e.preventDefault();
+    setErr(""); setLoading(true);
+    const { data, error } = await dbSignUp(email, pwd, name || email.split("@")[0]);
+    setLoading(false);
+    if (error) { setErr(error.message); return; }
+    // Supabase may require email confirmation depending on project settings.
+    // If email confirmation is disabled, the session fires immediately.
+    if (data?.session) {
+      // Logged in immediately — onAuthStateChange handles navigation.
+    } else {
+      setErr("Check your email to confirm your account, then sign in.");
+      setTab("signin");
     }
   }
+
+  // Guest mode: local-only session (no Supabase)
   function onGuest() {
     const guest = createGuest();
-    const next = { ...store, users: { ...store.users, [guest.id]: guest } };
-    finalizeLogin(guest, next);
+    const next = seedForUser(
+      { ...store, users: { ...store.users, [guest.id]: guest }, currentUserId: guest.id },
+      guest.id,
+    );
+    setStore(next);
+    navigate("/");
   }
 
   return (
@@ -55,8 +59,10 @@ function AuthScreen({ store, setStore, mode, sharePreview }) {
         </div>
 
         <div className="auth-tabs">
-          <button className={`auth-tab ${tab === "signin" ? "active" : ""}`} onClick={() => { setTab("signin"); setErr(""); }}>Sign in</button>
-          <button className={`auth-tab ${tab === "signup" ? "active" : ""}`} onClick={() => { setTab("signup"); setErr(""); }}>Create account</button>
+          <button className={`auth-tab ${tab === "signin" ? "active" : ""}`}
+                  onClick={() => { setTab("signin"); setErr(""); }}>Sign in</button>
+          <button className={`auth-tab ${tab === "signup" ? "active" : ""}`}
+                  onClick={() => { setTab("signup"); setErr(""); }}>Create account</button>
         </div>
 
         {tab === "signin" ? (
@@ -72,7 +78,9 @@ function AuthScreen({ store, setStore, mode, sharePreview }) {
                      value={pwd} onChange={e => setPwd(e.target.value)} required />
             </div>
             {err && <div className="hint err">{err}</div>}
-            <button type="submit" className="btn primary">Sign in</button>
+            <button type="submit" className="btn primary" disabled={loading}>
+              {loading ? "Signing in…" : "Sign in"}
+            </button>
           </form>
         ) : (
           <form className="stack" style={{ gap: 14 }} onSubmit={onSignup}>
@@ -89,11 +97,13 @@ function AuthScreen({ store, setStore, mode, sharePreview }) {
             <div className="field">
               <label className="label" htmlFor="au-pwd">Password</label>
               <input id="au-pwd" className="input" type="password" autoComplete="new-password"
-                     value={pwd} onChange={e => setPwd(e.target.value)} required minLength={4} />
-              <div className="hint">4+ characters.</div>
+                     value={pwd} onChange={e => setPwd(e.target.value)} required minLength={6} />
+              <div className="hint">6+ characters.</div>
             </div>
             {err && <div className="hint err">{err}</div>}
-            <button type="submit" className="btn primary">Create account</button>
+            <button type="submit" className="btn primary" disabled={loading}>
+              {loading ? "Creating account…" : "Create account"}
+            </button>
           </form>
         )}
 
@@ -101,7 +111,8 @@ function AuthScreen({ store, setStore, mode, sharePreview }) {
         <button className="btn" onClick={onGuest}>Continue as guest</button>
 
         <div className="auth-note hint">
-          <strong>Heads up:</strong> RankEverything runs entirely in your browser — accounts and lists are stored locally on this device. Use a throwaway password.
+          <strong>Signed-in accounts</strong> sync your lists and rankings across all your devices.
+          Guest sessions are stored locally only.
         </div>
       </div>
     </div>
@@ -137,7 +148,9 @@ function UserMenu({ user, store, setStore, onSignOut }) {
             <div className="menu-sub mono">{user.isGuest ? "guest session" : user.email}</div>
           </div>
           <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); onSignOut(); }}>
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"><path d="M10 11l3-3-3-3M13 8H6M9 13H4a1 1 0 01-1-1V4a1 1 0 011-1h5"/></svg>
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M10 11l3-3-3-3M13 8H6M9 13H4a1 1 0 01-1-1V4a1 1 0 011-1h5"/>
+            </svg>
             Sign out
           </button>
         </div>

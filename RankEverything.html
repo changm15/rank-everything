@@ -16,6 +16,13 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+
+  <!-- Supabase — replace these two values with your project's URL and anon key -->
+  <script>
+    window.SUPABASE_URL = "https://jazdtyegduqrmgyiulpw.supabase.co";
+    window.SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImphemR0eWVnZHVxcm1neWl1bHB3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk1NDg0NTQsImV4cCI6MjA5NTEyNDQ1NH0.HYWp9VeRC1hFcmdmGbp2Y5APekbFokfX1D7V6rUQpHQ";
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 </head>
 <body>
   <div id="root"></div>
@@ -25,6 +32,7 @@
   <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
 
   <script type="text/babel" src="engine.jsx"></script>
+  <script type="text/babel" src="db.jsx"></script>
   <script type="text/babel" src="screens.jsx"></script>
   <script type="text/babel" src="auth.jsx"></script>
   <script type="text/babel" src="app.jsx"></script>

@@ -1,5 +1,5 @@
 /* RankEverything — app root
-   Router, header, store + theme + auth gating. */
+   Router, header, Supabase session init, store sync. */
 
 const { useState, useEffect, useRef, useCallback } = React;
 
@@ -7,16 +7,22 @@ function App() {
   const [store, setStoreState] = useState(() => loadState());
   const [route, setRoute] = useState(parseRoute());
   const [toast, setToast] = useState(null);
+  const [appLoading, setAppLoading] = useState(true); // true while checking Supabase session
 
-  // Persist whenever store changes
+  // Keep a ref to the previous store so we can diff and sync only what changed
+  const prevStoreRef = useRef(null);
+  // Flag: suppress sync-to-DB during the initial load from DB
+  const suppressSyncRef = useRef(false);
+
+  /* ── Persist to localStorage (always, for offline / guest) ── */
   useEffect(() => { saveState(store); }, [store]);
 
-  // Apply theme to <html>
+  /* ── Theme ── */
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", store.theme || "light");
   }, [store.theme]);
 
-  // Hash-based router
+  /* ── Hash router ── */
   useEffect(() => {
     const onHash = () => setRoute(parseRoute());
     window.addEventListener("hashchange", onHash);
@@ -29,25 +35,134 @@ function App() {
 
   const showToast = useCallback((msg) => { setToast({ msg, key: Date.now() }); }, []);
 
+  /* ── Supabase session bootstrap ── */
+  useEffect(() => {
+    let mounted = true;
+
+    async function init() {
+      // Check for an existing session (e.g. page refresh while logged in)
+      const session = await dbGetSession();
+      if (session && mounted) {
+        suppressSyncRef.current = true;
+        try {
+          const newStore = await dbLoadUserStore(session.user);
+          if (mounted) setStoreState(newStore);
+        } catch (err) {
+          console.error("[db] Failed to load user store:", err);
+        } finally {
+          suppressSyncRef.current = false;
+        }
+      }
+      if (mounted) setAppLoading(false);
+    }
+
+    init();
+
+    // Listen for sign-in / sign-out events
+    const { data: { subscription } } = dbOnAuthChange(async (event, session) => {
+      if (!mounted) return;
+      if (event === "SIGNED_IN" && session) {
+        suppressSyncRef.current = true;
+        try {
+          const newStore = await dbLoadUserStore(session.user);
+          if (mounted) {
+            setStoreState(newStore);
+            navigate("/");
+          }
+        } catch (err) {
+          console.error("[db] Failed to load user store on sign-in:", err);
+        } finally {
+          suppressSyncRef.current = false;
+        }
+      } else if (event === "SIGNED_OUT") {
+        if (mounted) {
+          setStoreState({ ...DEFAULT_STATE });
+          navigate("/auth");
+        }
+      }
+    });
+
+    return () => {
+      mounted = false;
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  /* ── Sync store changes → Supabase ── */
+  useEffect(() => {
+    if (suppressSyncRef.current) return;
+    const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
+    if (!currentUser || currentUser.isGuest) return;
+
+    const prev = prevStoreRef.current;
+    prevStoreRef.current = store;
+    if (!prev) return; // first render — nothing to diff
+
+    const userId = currentUser.id;
+
+    // Sync new / changed lists
+    const prevLists = prev.lists || {};
+    const nextLists = store.lists || {};
+    for (const id of Object.keys(nextLists)) {
+      if (nextLists[id].ownerId !== userId) continue; // only own lists
+      if (
+        !prevLists[id] ||
+        prevLists[id].name !== nextLists[id].name ||
+        prevLists[id].isPublic !== nextLists[id].isPublic ||
+        JSON.stringify(prevLists[id].items) !== JSON.stringify(nextLists[id].items)
+      ) {
+        dbUpsertList(nextLists[id], userId).catch(console.error);
+      }
+    }
+
+    // Sync new / changed rankers (debounce-free — picks save immediately)
+    const prevRankers = prev.rankers || {};
+    const nextRankers = store.rankers || {};
+    for (const id of Object.keys(nextRankers)) {
+      if (nextRankers[id].ownerId !== userId) continue;
+      if (
+        !prevRankers[id] ||
+        prevRankers[id].picks?.length !== nextRankers[id].picks?.length
+      ) {
+        dbUpsertRanker(nextRankers[id], userId).catch(console.error);
+      }
+    }
+
+    // Sync saved lists
+    const prevSaved = new Set(prev.savedLists?.[userId] || []);
+    const nextSaved = new Set(store.savedLists?.[userId] || []);
+    for (const listId of nextSaved) {
+      if (!prevSaved.has(listId)) dbSaveList(userId, listId).catch(console.error);
+    }
+    for (const listId of prevSaved) {
+      if (!nextSaved.has(listId)) dbUnsaveList(userId, listId).catch(console.error);
+    }
+  }, [store]);
+
   function toggleTheme() {
     setStore(s => ({ ...s, theme: s.theme === "dark" ? "light" : "dark" }));
   }
-  function signOut() {
-    setStore(s => ({ ...s, currentUserId: null }));
-    navigate("/auth");
+
+  async function signOut() {
+    const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
+    if (currentUser && !currentUser.isGuest) {
+      await dbSignOut(); // triggers SIGNED_OUT event → resets store
+    } else {
+      setStore(s => ({ ...s, currentUserId: null }));
+      navigate("/auth");
+    }
   }
 
   const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
 
-  // If a share link landed an unauthenticated user, stash the code so we can
-  // route to /join/<code> after they sign in.
+  // Stash pending join code for unauthenticated share links
   useEffect(() => {
     if (!currentUser && route.name === "join" && route.code) {
       try { sessionStorage.setItem("pendingJoinCode", route.code); } catch (_) {}
     }
   }, [currentUser, route.name, route.code]);
 
-  // After auth, route to any pending join code.
+  // After auth, route to any pending join code
   useEffect(() => {
     if (!currentUser) return;
     try {
@@ -59,10 +174,24 @@ function App() {
     } catch (_) {}
   }, [currentUser, route.name]);
 
-  // If signed in and the route is /auth, bounce home.
+  // Bounce authenticated users away from /auth
   useEffect(() => {
     if (currentUser && route.name === "auth") navigate("/");
   }, [currentUser, route.name]);
+
+  // Show a full-screen spinner while Supabase session is resolving
+  if (appLoading) {
+    return (
+      <div style={{
+        position: "fixed", inset: 0, display: "flex",
+        alignItems: "center", justifyContent: "center",
+        background: "var(--bg, #fff)", color: "var(--muted, #999)",
+        fontFamily: "-apple-system, BlinkMacSystemFont, sans-serif", fontSize: 14,
+      }}>
+        Loading…
+      </div>
+    );
+  }
 
   let screen;
   if (!currentUser) {
@@ -92,10 +221,6 @@ function App() {
         break;
       case "results":
         screen = <ResultsScreen store={store} setStore={setStore} currentUser={currentUser} rankerId={route.rankerId} tab={route.tab || "rankings"} showToast={showToast} />;
-        break;
-      case "auth":
-        // bounced to home above
-        screen = <HomeScreen store={store} setStore={setStore} currentUser={currentUser} showToast={showToast} />;
         break;
       default:
         screen = <HomeScreen store={store} setStore={setStore} currentUser={currentUser} showToast={showToast} />;
