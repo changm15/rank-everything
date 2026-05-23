@@ -40,23 +40,32 @@ function App() {
     let mounted = true;
 
     async function init() {
-      // Check for an existing session (e.g. page refresh while logged in)
-      const session = await dbGetSession();
-      if (session && mounted) {
-        suppressSyncRef.current = true;
-        try {
-          const newStore = await dbLoadUserStore(session.user);
-          if (mounted) setStoreState(newStore);
-        } catch (err) {
-          console.error("[db] Failed to load user store:", err);
-        } finally {
-          suppressSyncRef.current = false;
+      try {
+        // Check for an existing session (e.g. page refresh while logged in)
+        const session = await dbGetSession();
+        if (session && mounted) {
+          suppressSyncRef.current = true;
+          try {
+            const newStore = await dbLoadUserStore(session.user);
+            if (mounted) setStoreState(newStore);
+          } catch (err) {
+            console.error("[db] Failed to load user store:", err);
+          } finally {
+            suppressSyncRef.current = false;
+          }
         }
+      } catch (err) {
+        console.error("[db] Session check failed:", err);
+      } finally {
+        // Always clear the loading screen — even if something went wrong
+        if (mounted) setAppLoading(false);
       }
-      if (mounted) setAppLoading(false);
     }
 
     init();
+
+    // Hard timeout — if Supabase never responds, unblock the app after 5s
+    const timeout = setTimeout(() => { if (mounted) setAppLoading(false); }, 5000);
 
     // Listen for sign-in / sign-out events
     const { data: { subscription } } = dbOnAuthChange(async (event, session) => {
@@ -84,6 +93,7 @@ function App() {
 
     return () => {
       mounted = false;
+      clearTimeout(timeout);
       subscription?.unsubscribe();
     };
   }, []);
