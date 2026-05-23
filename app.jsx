@@ -7,14 +7,14 @@ function App() {
   const [store, setStoreState] = useState(() => loadState());
   const [route, setRoute] = useState(parseRoute());
   const [toast, setToast] = useState(null);
-  const [appLoading, setAppLoading] = useState(true); // true while checking Supabase session
+  const [appLoading, setAppLoading] = useState(true);
 
-  // Keep a ref to the previous store so we can diff and sync only what changed
-  const prevStoreRef = useRef(null);
-  // Flag: suppress sync-to-DB during the initial load from DB
+  const prevStoreRef   = useRef(null);
   const suppressSyncRef = useRef(false);
+  // Set to true during an explicit sign-out so the SIGNED_IN event can't re-login
+  const signingOutRef  = useRef(false);
 
-  /* ── Persist to localStorage (always, for offline / guest) ── */
+  /* ── Persist to localStorage ── */
   useEffect(() => { saveState(store); }, [store]);
 
   /* ── Theme ── */
@@ -35,55 +35,53 @@ function App() {
 
   const showToast = useCallback((msg) => { setToast({ msg, key: Date.now() }); }, []);
 
+  /* ── Load a Supabase user into the store ── */
+  async function loadUserIntoStore(supabaseUser) {
+    suppressSyncRef.current = true;
+    try {
+      const newStore = await dbLoadUserStore(supabaseUser);
+      setStoreState(newStore);
+    } catch (err) {
+      console.error("[db] Failed to load user store:", err);
+    } finally {
+      suppressSyncRef.current = false;
+    }
+  }
+
   /* ── Supabase session bootstrap ── */
   useEffect(() => {
     let mounted = true;
 
     async function init() {
       try {
-        // Check for an existing session (e.g. page refresh while logged in)
         const session = await dbGetSession();
-        if (session && mounted) {
-          suppressSyncRef.current = true;
-          try {
-            const newStore = await dbLoadUserStore(session.user);
-            if (mounted) setStoreState(newStore);
-          } catch (err) {
-            console.error("[db] Failed to load user store:", err);
-          } finally {
-            suppressSyncRef.current = false;
-          }
+        if (session && mounted && !signingOutRef.current) {
+          await loadUserIntoStore(session.user);
         }
       } catch (err) {
         console.error("[db] Session check failed:", err);
       } finally {
-        // Always clear the loading screen — even if something went wrong
         if (mounted) setAppLoading(false);
       }
     }
 
     init();
 
-    // Hard timeout — if Supabase never responds, unblock the app after 5s
+    // Hard fallback — unblock the app after 5s even if Supabase hangs
     const timeout = setTimeout(() => { if (mounted) setAppLoading(false); }, 5000);
 
-    // Listen for sign-in / sign-out events
     const { data: { subscription } } = dbOnAuthChange(async (event, session) => {
       if (!mounted) return;
+
       if (event === "SIGNED_IN" && session) {
-        suppressSyncRef.current = true;
-        try {
-          const newStore = await dbLoadUserStore(session.user);
-          if (mounted) {
-            setStoreState(newStore);
-            navigate("/");
-          }
-        } catch (err) {
-          console.error("[db] Failed to load user store on sign-in:", err);
-        } finally {
-          suppressSyncRef.current = false;
-        }
-      } else if (event === "SIGNED_OUT") {
+        // Ignore the SIGNED_IN event that fires right after an explicit sign-out
+        if (signingOutRef.current) return;
+        await loadUserIntoStore(session.user);
+        if (mounted) navigate("/");
+      }
+
+      if (event === "SIGNED_OUT") {
+        signingOutRef.current = false;
         if (mounted) {
           setStoreState({ ...DEFAULT_STATE });
           navigate("/auth");
@@ -106,15 +104,15 @@ function App() {
 
     const prev = prevStoreRef.current;
     prevStoreRef.current = store;
-    if (!prev) return; // first render — nothing to diff
+    if (!prev) return;
 
     const userId = currentUser.id;
 
-    // Sync new / changed lists
+    // Sync changed lists
     const prevLists = prev.lists || {};
     const nextLists = store.lists || {};
     for (const id of Object.keys(nextLists)) {
-      if (nextLists[id].ownerId !== userId) continue; // only own lists
+      if (nextLists[id].ownerId !== userId) continue;
       if (
         !prevLists[id] ||
         prevLists[id].name !== nextLists[id].name ||
@@ -125,7 +123,7 @@ function App() {
       }
     }
 
-    // Sync new / changed rankers (debounce-free — picks save immediately)
+    // Sync changed rankers
     const prevRankers = prev.rankers || {};
     const nextRankers = store.rankers || {};
     for (const id of Object.keys(nextRankers)) {
@@ -149,96 +147,87 @@ function App() {
     }
   }, [store]);
 
-  // Refresh data from Supabase on every route change based on what each screen needs
+  /* ── Per-route data refresh ── */
   useEffect(() => {
-    const user = store.currentUserId ? store.users[store.currentUserId] : null;
-    if (!user || user.isGuest) return;
-    const userId = user.id;
+    if (appLoading) return;
+
+    const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
+    const userId = currentUser && !currentUser.isGuest ? currentUser.id : null;
 
     async function refresh() {
       suppressSyncRef.current = true;
       try {
-        switch (route.name) {
-          case "home": {
-            // Refresh user's own lists + rankers
-            const [{ data: userLists }, { data: rankerRows }] = await Promise.all([
-              dbGetUserLists(userId),
-              dbGetUserRankers(userId),
-            ]);
-            setStore(s => {
-              const lists = { ...s.lists };
-              for (const r of (userLists || [])) lists[r.id] = rowToList(r);
-              const rankers = { ...s.rankers };
-              const lastRanker = { ...s.lastRanker };
-              for (const r of (rankerRows || [])) {
-                rankers[r.id] = rowToRanker(r);
-                const key = lastRankerKey(userId, r.list_id);
-                if (!lastRanker[key] || rowToRanker(r).updatedAt > (rankers[lastRanker[key]]?.updatedAt || 0)) {
-                  lastRanker[key] = r.id;
-                }
-              }
-              return { ...s, lists, rankers, lastRanker };
-            });
-            break;
-          }
 
-          case "explore": {
-            // Refresh all public lists
-            const { data: publicLists } = await dbGetPublicLists();
-            setStore(s => {
-              const lists = { ...s.lists };
-              for (const r of (publicLists || [])) lists[r.id] = rowToList(r);
-              return { ...s, lists };
-            });
-            break;
-          }
-
-          case "saved": {
-            // Refresh saved list IDs + the actual list rows
-            const { data: savedIds } = await dbGetSavedListIds(userId);
-            const { data: publicLists } = await dbGetPublicLists();
-            setStore(s => {
-              const lists = { ...s.lists };
-              for (const r of (publicLists || [])) lists[r.id] = rowToList(r);
-              return {
-                ...s,
-                lists,
-                savedLists: { ...s.savedLists, [userId]: savedIds || [] },
-              };
-            });
-            break;
-          }
-
-          case "stats": {
-            // Refresh all rankers for this list so leaderboard is current
-            if (!route.listId) break;
-            const { data: listRankers } = await dbGetListRankers(route.listId);
-            setStore(s => {
-              const rankers = { ...s.rankers };
-              for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
-              return { ...s, rankers };
-            });
-            break;
-          }
-
-          case "results": {
-            // Refresh the specific ranker + its list's rankers for the leaderboard
-            if (!route.rankerId) break;
-            const myRanker = store.rankers[route.rankerId];
-            const listId = myRanker?.listId;
-            if (!listId) break;
-            const { data: listRankers } = await dbGetListRankers(listId);
-            setStore(s => {
-              const rankers = { ...s.rankers };
-              for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
-              return { ...s, rankers };
-            });
-            break;
-          }
-
-          default:
-            break;
+        // Always refresh public lists on Explore — no auth required
+        if (route.name === "explore") {
+          const { data: publicLists, error } = await dbGetPublicLists();
+          if (error) console.error("[db] dbGetPublicLists error:", error);
+          setStoreState(s => {
+            const lists = { ...s.lists };
+            for (const r of (publicLists || [])) lists[r.id] = rowToList(r);
+            return { ...s, lists };
+          });
+          return;
         }
+
+        // Remaining routes need a signed-in user
+        if (!userId) return;
+
+        if (route.name === "home") {
+          const [{ data: userLists }, { data: rankerRows }] = await Promise.all([
+            dbGetUserLists(userId),
+            dbGetUserRankers(userId),
+          ]);
+          setStoreState(s => {
+            const lists = { ...s.lists };
+            for (const r of (userLists || [])) lists[r.id] = rowToList(r);
+            const rankers = { ...s.rankers };
+            const lastRanker = { ...s.lastRanker };
+            for (const r of (rankerRows || [])) {
+              rankers[r.id] = rowToRanker(r);
+              const key = lastRankerKey(userId, r.list_id);
+              const cur = lastRanker[key];
+              if (!cur || rankers[r.id].updatedAt > (rankers[cur]?.updatedAt || 0)) {
+                lastRanker[key] = r.id;
+              }
+            }
+            return { ...s, lists, rankers, lastRanker };
+          });
+        }
+
+        if (route.name === "saved") {
+          const [{ data: savedIds }, { data: publicLists }] = await Promise.all([
+            dbGetSavedListIds(userId),
+            dbGetPublicLists(),
+          ]);
+          setStoreState(s => {
+            const lists = { ...s.lists };
+            for (const r of (publicLists || [])) lists[r.id] = rowToList(r);
+            return { ...s, lists, savedLists: { ...s.savedLists, [userId]: savedIds || [] } };
+          });
+        }
+
+        if (route.name === "stats" && route.listId) {
+          const { data: listRankers } = await dbGetListRankers(route.listId);
+          setStoreState(s => {
+            const rankers = { ...s.rankers };
+            for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
+            return { ...s, rankers };
+          });
+        }
+
+        if (route.name === "results" && route.rankerId) {
+          const myRanker = store.rankers[route.rankerId];
+          if (myRanker?.listId) {
+            const { data: listRankers } = await dbGetListRankers(myRanker.listId);
+            setStoreState(s => {
+              const rankers = { ...s.rankers };
+              for (const r of (listRankers || [])) rankers[r.id] = rowToRanker(r);
+              return { ...s, rankers };
+            });
+          }
+        }
+
       } catch (err) {
         console.error("[db] Route refresh failed:", err);
       } finally {
@@ -247,20 +236,16 @@ function App() {
     }
 
     refresh();
-  }, [route.name, route.listId, route.rankerId]);
+  }, [route.name, route.listId, route.rankerId, appLoading]);
 
-  function toggleTheme() {
-    setStore(s => ({ ...s, theme: s.theme === "dark" ? "light" : "dark" }));
-  }
-
+  /* ── Sign out ── */
   async function signOut() {
-    const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
-    if (currentUser && !currentUser.isGuest) {
-      await dbSignOut().catch(console.error);
-    }
-    // Reset store and navigate immediately — don't wait for the auth event
+    signingOutRef.current = true;
+    // Clear local state immediately so the UI reacts right away
     setStoreState({ ...DEFAULT_STATE });
     navigate("/auth");
+    // Then tell Supabase to clear the session (fires SIGNED_OUT event which we also handle)
+    try { await dbSignOut(); } catch (err) { console.error("[db] Sign out error:", err); }
   }
 
   const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
@@ -289,7 +274,6 @@ function App() {
     if (currentUser && route.name === "auth") navigate("/");
   }, [currentUser, route.name]);
 
-  // Show a full-screen spinner while Supabase session is resolving
   if (appLoading) {
     return (
       <div style={{
@@ -344,6 +328,10 @@ function App() {
       {toast && <Toast key={toast.key} msg={toast.msg} onDone={() => setToast(null)} />}
     </ThemedShell>
   );
+
+  function toggleTheme() {
+    setStore(s => ({ ...s, theme: s.theme === "dark" ? "light" : "dark" }));
+  }
 }
 
 function ThemedShell({ store, toggleTheme, currentUser, setStore, onSignOut, children }) {
