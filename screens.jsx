@@ -82,8 +82,8 @@ function HomeScreen({ store, setStore, currentUser, showToast }) {
     <div className="container page" data-screen-label="01 Home">
       <div className="page-head">
         <div className="crumb">My lists</div>
-        <h1>What are we ranking today?</h1>
-        <p className="lede">Pick favorites in head-to-head matchups. We&rsquo;ll do the math and turn it into ELO scores, a leaderboard, and a simulated bracket.</p>
+        <h1>What are you undecided about?</h1>
+        <p className="lede">Pick between two things at a time — no overthinking. We figure out your real ranking from your gut reactions, then you can see how your opinions stack up against friends.</p>
       </div>
 
       <div className="row" style={{ marginBottom: 20 }}>
@@ -221,7 +221,7 @@ function CreateScreen({ store, setStore, currentUser }) {
       <div className="page-head">
         <div className="crumb"><a href="#/" style={{ textDecoration: "none" }}>← Lists</a> / New</div>
         <h1>New list</h1>
-        <p className="lede">Give your list a name and drop in 4–200 items, one per line. Or import a Google Maps list.</p>
+        <p className="lede">What are you undecided about? Add your options — pizza toppings, restaurants, whatever — and we&rsquo;ll put them head-to-head until the answer is obvious.</p>
       </div>
 
       <form className="card" onSubmit={submit}>
@@ -333,7 +333,7 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
       <div className="page-head">
         <div className="crumb"><a href="#/" style={{ textDecoration: "none" }}>← Lists</a> / Join</div>
         <h1>Join a list</h1>
-        <p className="lede">Paste a share code to rank a friend&rsquo;s list. Your picks stay separate from theirs.</p>
+        <p className="lede">Got a link from a friend? Settle the debate — your picks are yours, theirs are theirs. See who actually has better taste.</p>
       </div>
 
       <form className="card" onSubmit={submit}>
@@ -430,7 +430,7 @@ function ExploreScreen({ store, setStore, currentUser, filter, showToast }) {
       <div className="page-head">
         <div className="crumb"><a href="#/" style={{ textDecoration: "none" }}>← Lists</a> / Explore</div>
         <h1>Explore</h1>
-        <p className="lede">Lists other people have made public. Rank them to see how your taste lines up — or save for later.</p>
+        <p className="lede">Topics other people are ranking. Jump in, figure out your take, and see where your opinion lands.</p>
       </div>
 
       <ExploreFilters active={activeFilter} counts={{
@@ -578,12 +578,12 @@ function SavedScreen({ store, setStore, currentUser, showToast }) {
       <div className="page-head">
         <div className="crumb"><a href="#/" style={{ textDecoration: "none" }}>← Home</a> / Saved lists</div>
         <h1>Saved lists</h1>
-        <p className="lede">Lists from the community you&rsquo;ve starred, plus lists shared with you. Click any row to see stats — no ranking required.</p>
+        <p className="lede">Topics you&rsquo;ve saved to come back to. Rank when you&rsquo;re ready — or just browse how others voted.</p>
       </div>
 
       {enriched.length === 0 ? (
         <div className="empty">
-          Nothing saved yet. <a href="#/explore">Browse Explore</a> and tap the star on any list.
+          Nothing saved yet. <a href="#/explore">Browse topics</a> and star anything you want to weigh in on.
         </div>
       ) : (
         <div className="stack">
@@ -723,7 +723,7 @@ function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast 
       <div className="share-card" style={{ marginBottom: 18 }}>
         <div className="share-head">
           <div>
-            <div style={{ fontWeight: 500 }}>{combined ? "Community results" : "Be the first to rank this"}</div>
+            <div style={{ fontWeight: 500 }}>{combined ? "Community verdict so far" : "No one has weighed in yet — be the first"}</div>
             <div className="hint">
               {combined
                 ? <>ELOs pooled from {allRankers.length} ranker{allRankers.length === 1 ? "" : "s"}. Your picks would add to this.</>
@@ -822,7 +822,7 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
     setCursor(newCursor);
     if (!milestoneShownRef.current && newPicks.length === totalPairs) {
       milestoneShownRef.current = true;
-      showToast("You've ranked every pair! Keep going for stronger ELO, or hit Done.");
+      showToast("You've weighed in on every matchup! Keep going to sharpen it, or hit Done to see your verdict.");
     }
   }
   function skip() {
@@ -860,8 +860,8 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
         <h1>{list.name}</h1>
         <p className="lede">
           {inBonus
-            ? <>Initial round complete. Bonus matchups refine your ELO — hit <strong>Done</strong> whenever you&rsquo;re ready.</>
-            : <>Tap your favorite. Skip if you can&rsquo;t decide — we&rsquo;ll come back to it.</>}
+            ? <>You&rsquo;ve seen every matchup — keep going to sharpen your ranking, or hit <strong>Done</strong> if you&rsquo;re satisfied.</>
+            : <>Just go with your gut. No overthinking — if you genuinely can&rsquo;t choose, skip it and we&rsquo;ll come back.</>}
         </p>
       </div>
 
@@ -893,7 +893,9 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
 
       {!showResultsReady && (
         <div className="hint" style={{ textAlign: "center" }}>
-          Rank at least <span className="mono">{minPicks}</span> matchup{minPicks === 1 ? "" : "s"} (every item once) to unlock results.
+          {minPicks - ranker.picks.length > 0
+            ? <>{minPicks - ranker.picks.length} more to go before your verdict is ready.</>
+            : <>Almost there — keep going to get a clear verdict.</>}
         </div>
       )}
 
@@ -1057,8 +1059,8 @@ function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast 
         <h1>{list.name}</h1>
         <p className="lede">
           {done
-            ? <>Ranked by <strong>{ranker.name}</strong> · {ranker.picks.length} matchups</>
-            : <>In progress — {ranker.picks.length}/{totalPairs} matchups</>}
+            ? <>{ranker.picks.length} head-to-heads later, here&rsquo;s what <strong>{ranker.name}</strong> actually thinks.</>
+            : <>Still deciding — {ranker.picks.length} of {totalPairs} matchups in. Keep going to get a clearer verdict.</>}
         </p>
       </div>
 

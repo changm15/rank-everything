@@ -329,7 +329,7 @@ function FriendsScreen({ store, setStore, currentUser, showToast }) {
       <div className="page-head">
         <div className="crumb"><a href="#/" style={{ textDecoration: "none" }}>← Home</a> / Friends</div>
         <h1>Friends</h1>
-        <p className="lede">See what your friends are ranking.</p>
+        <p className="lede">Compare opinions. Find out who has the worst taste. Settle debates for good.</p>
       </div>
 
       {/* Search */}

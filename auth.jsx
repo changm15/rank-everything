@@ -54,7 +54,7 @@ function AuthScreen({ store, setStore, mode, onSessionLoaded }) {
           <span className="brand-mark">R</span>
           <div>
             <div style={{ fontWeight: 500, fontSize: 18, letterSpacing: "-0.01em" }}>RankEverything</div>
-            <div className="hint" style={{ marginTop: 2 }}>Pick favorites, see what wins.</div>
+            <div className="hint" style={{ marginTop: 2 }}>Finally figure out what you actually think.</div>
           </div>
         </div>
 
@@ -111,8 +111,8 @@ function AuthScreen({ store, setStore, mode, onSessionLoaded }) {
         <button className="btn" onClick={onGuest}>Continue as guest</button>
 
         <div className="auth-note hint">
-          <strong>Signed-in accounts</strong> sync your lists and rankings across all your devices.
-          Guest sessions are stored locally only.
+          <strong>Signed-in accounts</strong> save your opinions and let you compare with friends across any device.
+          Guest sessions are stored on this device only.
         </div>
       </div>
     </div>
