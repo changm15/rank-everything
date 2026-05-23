@@ -35,6 +35,19 @@ function App() {
 
   const showToast = useCallback((msg) => { setToast({ msg, key: Date.now() }); }, []);
 
+  /* ── Fetch public lists on mount — no auth required ── */
+  useEffect(() => {
+    dbGetPublicLists().then(({ data, error }) => {
+      if (error) { console.error("[db] Public list fetch error:", error); return; }
+      if (!data || !data.length) return;
+      setStoreState(s => {
+        const lists = { ...s.lists };
+        for (const r of data) lists[r.id] = rowToList(r);
+        return { ...s, lists };
+      });
+    });
+  }, []);
+
   /* ── Load a Supabase user into the store ── */
   async function loadUserIntoStore(supabaseUser) {
     suppressSyncRef.current = true;
@@ -155,13 +168,12 @@ function App() {
     const userId = currentUser && !currentUser.isGuest ? currentUser.id : null;
 
     async function refresh() {
-      suppressSyncRef.current = true;
       try {
 
-        // Always refresh public lists on Explore — no auth required
+        // Always refresh public lists on Explore — no auth required, no suppression
         if (route.name === "explore") {
           const { data: publicLists, error } = await dbGetPublicLists();
-          if (error) console.error("[db] dbGetPublicLists error:", error);
+          if (error) { console.error("[db] dbGetPublicLists error:", error); return; }
           setStoreState(s => {
             const lists = { ...s.lists };
             for (const r of (publicLists || [])) lists[r.id] = rowToList(r);
@@ -169,6 +181,8 @@ function App() {
           });
           return;
         }
+
+        suppressSyncRef.current = true;
 
         // Remaining routes need a signed-in user
         if (!userId) return;
