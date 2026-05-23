@@ -171,10 +171,10 @@ function CreateScreen({ store, setStore, currentUser }) {
       // Merge with existing items, de-duped
       const current = items.split("\n").map(s => s.trim()).filter(Boolean);
       const merged = Array.from(new Set([...current, ...names]));
-      const capped = merged.slice(0, 32);
+      const capped = merged.slice(0, 200);
       setItems(capped.join("\n"));
       if (!name && detectedName) setName(detectedName);
-      setImportNote(`Imported ${names.length} place${names.length === 1 ? "" : "s"}${merged.length > 32 ? ` · capped at 32` : ""}.`);
+      setImportNote(`Imported ${names.length} place${names.length === 1 ? "" : "s"}.`);
     };
     reader.onerror = () => setErr("Could not read that file.");
     reader.readAsText(file);
@@ -187,7 +187,7 @@ function CreateScreen({ store, setStore, currentUser }) {
     if (!name.trim()) { setErr("Give your list a name."); return; }
     const uniq = Array.from(new Set(parsed));
     if (uniq.length < 4) { setErr("Add at least 4 items (one per line)."); return; }
-    if (uniq.length > 32) { setErr("Keep it under 32 items."); return; }
+    if (uniq.length > 200) { setErr("Keep it under 200 items."); return; }
     const list = {
       id: uid("lst"),
       name: name.trim(),
@@ -221,7 +221,7 @@ function CreateScreen({ store, setStore, currentUser }) {
       <div className="page-head">
         <div className="crumb"><a href="#/" style={{ textDecoration: "none" }}>← Lists</a> / New</div>
         <h1>New list</h1>
-        <p className="lede">Give your list a name and drop in 4–32 items, one per line. Or import a Google Maps list.</p>
+        <p className="lede">Give your list a name and drop in 4–200 items, one per line. Or import a Google Maps list.</p>
       </div>
 
       <form className="card" onSubmit={submit}>
@@ -1072,33 +1072,74 @@ function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast 
   );
 }
 
+/* ---------- Tier helpers ---------- */
+const TIER_DEFS = [
+  { name: "S", color: "#e0a526" },
+  { name: "A", color: "#00c853" },
+  { name: "B", color: "#2979ff" },
+  { name: "C", color: "#9e9e9e" },
+  { name: "D", color: "#ff9800" },
+  { name: "F", color: "#f45531" },
+];
+
+function assignTiers(ranked) {
+  if (ranked.length < 2) return ranked.map(r => ({ ...r, tier: "S" }));
+  const elos = ranked.map(r => r.elo);
+  const mean = elos.reduce((a, b) => a + b, 0) / elos.length;
+  const std = Math.sqrt(elos.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / elos.length);
+  if (std < 1) return ranked.map(r => ({ ...r, tier: "B" }));
+  return ranked.map(r => {
+    const z = (r.elo - mean) / std;
+    if (z >= 1.5)  return { ...r, tier: "S" };
+    if (z >= 0.5)  return { ...r, tier: "A" };
+    if (z >= -0.5) return { ...r, tier: "B" };
+    if (z >= -1.5) return { ...r, tier: "C" };
+    if (z >= -2.5) return { ...r, tier: "D" };
+    return { ...r, tier: "F" };
+  });
+}
+
 /* ---------- Rankings tab ---------- */
 function RankingsTab({ ranker, ranked }) {
   if (!ranked.length) return <div className="empty">No data yet.</div>;
   const maxElo = Math.max(...ranked.map(r => r.elo));
   const minElo = Math.min(...ranked.map(r => r.elo));
-  const span = Math.max(40, maxElo - minElo); // avoid div0 / tiny spreads
+  const span = Math.max(40, maxElo - minElo);
+  const tiered = assignTiers(ranked);
+
+  let lastTier = null;
   return (
     <div className="rank-table">
-      {ranked.map((r, i) => {
+      {tiered.map((r, i) => {
         const pct = ((r.elo - minElo) / span) * 100;
         const wins = (ranker.wins && ranker.wins[r.name]) || 0;
         const losses = (ranker.losses && ranker.losses[r.name]) || 0;
         const isChamp = i === 0;
+        const tierDef = TIER_DEFS.find(t => t.name === r.tier);
+        const showTierHeader = r.tier !== lastTier;
+        lastTier = r.tier;
         return (
-          <div key={r.name} className={`rank-item ${isChamp ? "gold" : ""}`}>
-            <div className="pos">
-              {i < 3
-                ? <span className={`medal medal-${i + 1}`}>{i + 1}</span>
-                : <span className="mono">{i + 1}</span>}
+          <React.Fragment key={r.name}>
+            {showTierHeader && (
+              <div className="tier-header" style={{ "--tier-color": tierDef.color }}>
+                <span className="tier-badge" style={{ background: tierDef.color }}>{r.tier}</span>
+                <div className="tier-line" />
+              </div>
+            )}
+            <div className={`rank-item ${isChamp ? "gold" : ""}`}>
+              <div className="pos">
+                {i < 3
+                  ? <span className={`medal medal-${i + 1}`}>{i + 1}</span>
+                  : <span className="mono">{i + 1}</span>}
+              </div>
+              <div>
+                <div className="name">{r.name}</div>
+                <div className="bar"><span style={{ width: `${Math.max(4, pct)}%` }} /></div>
+              </div>
+              <div className="record mono">{wins}W · {losses}L</div>
+              <div className="elo">{Math.round(r.elo)}</div>
             </div>
-            <div>
-              <div className="name">{r.name}</div>
-              <div className="bar"><span style={{ width: `${Math.max(4, pct)}%` }} /></div>
-            </div>
-            <div className="record mono">{wins}W · {losses}L</div>
-            <div className="elo">{Math.round(r.elo)}</div>
-          </div>
+          </React.Fragment>
         );
       })}
     </div>
