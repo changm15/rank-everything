@@ -67,21 +67,23 @@ function App() {
 
     async function init() {
       try {
+        // getSession() reads from localStorage — fast, no network call needed.
+        // Unblock the UI immediately after; loadUserIntoStore runs in the background.
         const session = await dbGetSession();
+        if (mounted) setAppLoading(false);
         if (session && mounted && !signingOutRef.current) {
-          await loadUserIntoStore(session.user);
+          loadUserIntoStore(session.user); // intentionally not awaited
         }
       } catch (err) {
         console.error("[db] Session check failed:", err);
-      } finally {
         if (mounted) setAppLoading(false);
       }
     }
 
     init();
 
-    // Hard fallback — unblock the app after 5s even if Supabase hangs
-    const timeout = setTimeout(() => { if (mounted) setAppLoading(false); }, 5000);
+    // Hard fallback — unblock the app after 2s even if getSession hangs
+    const timeout = setTimeout(() => { if (mounted) setAppLoading(false); }, 2000);
 
     const { data: { subscription } } = dbOnAuthChange(async (event, session) => {
       if (!mounted) return;
@@ -305,8 +307,11 @@ function App() {
     // Clear local state immediately so the UI reacts right away
     setStoreState({ ...DEFAULT_STATE });
     navigate("/auth");
-    // Then tell Supabase to clear the session (fires SIGNED_OUT event which we also handle)
+    // Tell Supabase to clear the session (fires SIGNED_OUT which we also handle).
+    // Always reset signingOutRef when done — if SIGNED_OUT never fires (network
+    // error), we'd otherwise permanently block future SIGNED_IN events.
     try { await dbSignOut(); } catch (err) { console.error("[db] Sign out error:", err); }
+    finally { signingOutRef.current = false; }
   }
 
   const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;

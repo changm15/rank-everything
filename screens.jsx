@@ -640,18 +640,20 @@ function SavedScreen({ store, setStore, currentUser, showToast }) {
 
 /* ---------- List Stats (community view, no commitment to rank) ---------- */
 function ListStatsScreen({ store, setStore, currentUser, listId, tab, showToast }) {
-  const list = store.lists[listId];
+  const list = store.lists[listId] || null;
+
+  // Hooks must always be called — no early returns before them
+  const allRankers = useMemo(
+    () => list ? Object.values(store.rankers).filter(r => r.listId === list.id && r.picks.length > 0) : [],
+    [store.rankers, listId, list]
+  );
+  const myRanker = list ? Object.values(store.rankers).find(r => r.listId === list.id && r.ownerId === currentUser.id) : null;
+  const saved = list ? isListSaved(store, currentUser.id, list.id) : false;
+
   // List is fetched from DB in app.jsx route refresh; show a loading state meanwhile
   if (!list) {
     return <div className="container page"><div className="empty" style={{ color: "var(--muted)" }}>Loading…</div></div>;
   }
-
-  const allRankers = useMemo(
-    () => Object.values(store.rankers).filter(r => r.listId === list.id && r.picks.length > 0),
-    [store.rankers, list.id]
-  );
-  const myRanker = Object.values(store.rankers).find(r => r.listId === list.id && r.ownerId === currentUser.id);
-  const saved = isListSaved(store, currentUser.id, list.id);
 
   // Synthetic "Community" ranker pooled from everyone who has picks.
   const combined = useMemo(
@@ -1025,25 +1027,28 @@ function buildQueue(list, ranker) {
 
 /* ---------- Results ---------- */
 function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast }) {
-  const ranker = store.rankers[rankerId];
-  const list = ranker && store.lists[ranker.listId];
+  const ranker = store.rankers[rankerId] || null;
+  const list = ranker ? (store.lists[ranker.listId] || null) : null;
+
+  // Hooks must always be called — no early returns before them
+  const ranked = useMemo(
+    () => list ? rankItemsByElo(list.items, ranker.elos || {}) : [],
+    [list, ranker]
+  );
+  const allRankersForList = useMemo(
+    () => list ? Object.values(store.rankers).filter(r => r.listId === list.id && r.picks.length > 0) : [],
+    [store.rankers, list]
+  );
+  const totalPairs = ranker && list ? (ranker.totalPairs || allPairs(list.items).length) : 0;
+  const done = ranker ? ranker.picks.length >= totalPairs : false;
+  const shareUrl = useMemo(() => list ? shareUrlFor(list) : "", [list]);
+  const shareCode = useMemo(() => list ? encodeShare(list) : "", [list]);
+  const [showConfetti, setShowConfetti] = useState(false);
+
   // Data is fetched from DB in app.jsx route refresh; show a brief loading state
   if (!ranker || !list) {
     return <div className="container page"><div className="empty" style={{ color: "var(--muted)" }}>Loading…</div></div>;
   }
-
-  const ranked = useMemo(() => rankItemsByElo(list.items, ranker.elos || {}), [list.items, ranker.elos]);
-  const allRankersForList = useMemo(
-    () => Object.values(store.rankers).filter(r => r.listId === list.id && r.picks.length > 0),
-    [store.rankers, list.id]
-  );
-
-  const totalPairs = ranker.totalPairs || allPairs(list.items).length;
-  const done = ranker.picks.length >= totalPairs;
-  const shareCode = useMemo(() => encodeShare(list), [list]);
-  const shareUrl = useMemo(() => shareUrlFor(list), [list]);
-
-  const [showConfetti, setShowConfetti] = useState(false);
 
   function setTab(t) { navigate(`/results/${rankerId}/${t}`); }
   function reRank() {
