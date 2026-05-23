@@ -788,13 +788,13 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
   const showResultsReady = canShowResults(list.items, ranker.picks);
   const minPicks = minPicksForResults(list.items);
 
-  // If we somehow run out of queue (e.g. after the very last initial pair),
-  // refill silently so the user keeps rolling.
+  // Safety refill: if the queue is somehow empty (e.g. session resumed mid-flow),
+  // rebuild it adaptively from current state.
   useEffect(() => {
     if (!currentPair && completedPicks > 0) {
-      setQueue(q => [...q, ...shuffle(allPairs(list.items))]);
+      setQueue(q => [...q, ...adaptiveSort(allPairs(list.items), ranker.elos || {}, ranker.picks)]);
     }
-  }, [currentPair, completedPicks, list.items]);
+  }, [currentPair, completedPicks]);
 
   function pick(winner, loser) {
     const newPicks = [...ranker.picks, { winner, loser }];
@@ -808,12 +808,18 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
       },
     }));
     const newCursor = cursor + 1;
-    // If we just exhausted the queue, append a fresh shuffled round of pairs.
-    if (newCursor >= queue.length) {
-      setQueue(q => [...q, ...shuffle(allPairs(list.items))]);
-    }
+    setQueue(q => {
+      const shown     = q.slice(0, newCursor);       // already displayed — keep in place for undo
+      const remaining = q.slice(newCursor);           // not yet shown
+      if (remaining.length === 0) {
+        // Bonus round: adaptively pick from all pairs using updated ELOs
+        const bonus = adaptiveSort(allPairs(list.items), elos, newPicks);
+        return [...shown, ...bonus];
+      }
+      // Re-sort the unseen tail with updated ELO knowledge
+      return [...shown, ...adaptiveSort(remaining, elos, newPicks)];
+    });
     setCursor(newCursor);
-    // One-time milestone toast on hitting initial completion
     if (!milestoneShownRef.current && newPicks.length === totalPairs) {
       milestoneShownRef.current = true;
       showToast("You've ranked every pair! Keep going for stronger ELO, or hit Done.");
@@ -931,12 +937,68 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
 function pairKey(a, b) {
   return a < b ? `${a}|${b}` : `${b}|${a}`;
 }
+
+/* ── Adaptive pair scoring ────────────────────────────────────────────
+   Each candidate pair gets a priority score. Higher = shown sooner.
+
+   Components:
+   1. Uncertainty   – how close to 50/50? Peaks at 0.5 when ELOs are equal.
+                      Falls as the gap widens. This ensures we compare items
+                      that are genuinely competitive with each other.
+   2. Undefeated    – items with 0 losses haven't been beaten yet. Matching
+                      them against each other quickly settles the top tier
+                      without wasting matchups on obvious mismatches.
+   3. Low-exposure  – items that have appeared in fewer matchups get a small
+                      boost so no item gets forgotten early on.
+   4. Noise         – tiny random jitter keeps the queue from feeling robotic.
+*/
+function pairScore([a, b], elos, lossMap, exposureMap) {
+  const eloA = elos[a] || ELO_START;
+  const eloB = elos[b] || ELO_START;
+  const prob  = winProb(eloA, eloB);
+
+  // 1. Uncertainty: 0.5 when perfectly even, 0 when one side is a near-certain winner
+  const uncertainty = 0.5 - Math.abs(prob - 0.5);
+
+  // 2. Undefeated bonus
+  const aLosses = lossMap[a] || 0;
+  const bLosses = lossMap[b] || 0;
+  const undefeatedBonus = (aLosses === 0 && bLosses === 0) ? 0.55
+                        : (aLosses === 0 || bLosses === 0) ? 0.20
+                        : 0;
+
+  // 3. Low-exposure bonus (items seen in fewer matchups get slight priority)
+  const minExposure = Math.min(exposureMap[a] || 0, exposureMap[b] || 0);
+  const exposureBonus = Math.max(0, 0.15 - minExposure * 0.03);
+
+  // 4. Tiny random noise to prevent identical pairs from always ranking the same
+  const noise = Math.random() * 0.04;
+
+  return uncertainty + undefeatedBonus + exposureBonus + noise;
+}
+
+function adaptiveSort(pairs, elos, picks) {
+  // Build loss + exposure maps from current picks
+  const lossMap     = {};
+  const exposureMap = {};
+  for (const p of picks) {
+    lossMap[p.loser]       = (lossMap[p.loser]       || 0) + 1;
+    exposureMap[p.winner]  = (exposureMap[p.winner]  || 0) + 1;
+    exposureMap[p.loser]   = (exposureMap[p.loser]   || 0) + 1;
+  }
+  return pairs
+    .map(pair => ({ pair, score: pairScore(pair, elos, lossMap, exposureMap) }))
+    .sort((a, b) => b.score - a.score)
+    .map(x => x.pair);
+}
+
 function buildQueue(list, ranker) {
   if (!list || !ranker) return [];
   const seen = new Set();
   for (const p of ranker.picks) seen.add(pairKey(p.winner, p.loser));
   const remaining = allPairs(list.items).filter(([a, b]) => !seen.has(pairKey(a, b)));
-  return shuffle(remaining);
+  // Use adaptive sort from the start; falls back to near-random when ELOs are equal
+  return adaptiveSort(remaining, ranker.elos || {}, ranker.picks);
 }
 
 /* On mobile, the matchup-wrap stacks; we still need the VS in the middle. Render order: A, VS, B. */
