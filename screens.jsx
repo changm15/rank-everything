@@ -1080,6 +1080,13 @@ function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast 
     return <div className="container page"><div className="empty" style={{ color: "var(--muted)" }}>Loading…</div></div>;
   }
 
+  // Is the current user the owner of this ranker?
+  // Guest rankers have ownerId=null in DB; treat as owned if it's in local store.
+  const isOwner = ranker.ownerId === currentUser.id ||
+    (currentUser.isGuest && ranker.ownerId === null);
+
+  const resultsUrl = `${window.location.origin}${window.location.pathname}#/results/${rankerId}`;
+
   function setTab(t) { navigate(`/results/${rankerId}/${t}`); }
   function reRank() {
     if (!confirm("Reset your picks and rank again?")) return;
@@ -1093,21 +1100,49 @@ function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast 
     navigate(`/rank/${ranker.id}`);
   }
 
-  async function nativeShare() {
-    const payload = {
-      title: `RankEverything · ${list.name}`,
-      text: `Help me rank "${list.name}" on RankEverything`,
-      url: shareUrl,
-    };
-    if (navigator.share) {
-      try { await navigator.share(payload); return; }
-      catch (e) { /* user cancelled, ignore */ if (e && e.name === "AbortError") return; }
-    }
+  async function nativeShareList() {
+    const payload = { title: `RankEverything · ${list.name}`, text: `Help me rank "${list.name}"`, url: shareUrl };
+    if (navigator.share) { try { await navigator.share(payload); return; } catch (e) { if (e?.name === "AbortError") return; } }
     copyToClipboard(shareUrl).then(() => showToast("Link copied"));
   }
 
-  const resultsUrl = `${window.location.origin}${window.location.pathname}#/results/${rankerId}`;
+  async function nativeShareResults() {
+    const payload = { title: `${ranker.name}'s ranking of ${list.name}`, text: `See how ${ranker.name} ranked "${list.name}" — then do your own`, url: resultsUrl };
+    if (navigator.share) { try { await navigator.share(payload); return; } catch (e) { if (e?.name === "AbortError") return; } }
+    copyToClipboard(resultsUrl).then(() => showToast("Results link copied"));
+  }
 
+  // ── Visitor view: someone opened another person's results link ────────────────
+  if (!isOwner) {
+    const myRankerForList = Object.values(store.rankers).find(
+      r => r.listId === list.id && r.ownerId === currentUser.id
+    );
+    return (
+      <div className="container page" data-screen-label="04 Results (visitor)">
+        <div className="page-head">
+          <div className="crumb"><a href={`#/stats/${list.id}`} style={{ textDecoration: "none" }}>← {list.name}</a></div>
+          <h1>{ranker.name}&rsquo;s ranking</h1>
+          <p className="lede">{list.name} · {ranker.picks.length} matchups</p>
+        </div>
+
+        <div className="share-card" style={{ marginBottom: 18 }}>
+          <div className="share-head">
+            <div>
+              <div style={{ fontWeight: 500 }}>Think you know better?</div>
+              <div className="hint">Do your own ranking and see how you compare.</div>
+            </div>
+            <button className="btn primary" onClick={() => navigate(`/stats/${list.id}`)}>
+              {myRankerForList ? "See your results →" : "Rank it yourself →"}
+            </button>
+          </div>
+        </div>
+
+        <RankingsTab ranker={ranker} ranked={ranked} />
+      </div>
+    );
+  }
+
+  // ── Owner view ────────────────────────────────────────────────────────────────
   return (
     <div className="container page" data-screen-label="04 Results">
       <div className="page-head">
@@ -1124,23 +1159,42 @@ function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast 
         <div className="card" style={{ marginBottom: 18, display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontWeight: 500, marginBottom: 2 }}>Bookmark your results</div>
-            <div className="hint">You&rsquo;re in a guest session — save this link to come back to your rankings later.</div>
+            <div className="hint">Guest session — save this link to come back to your rankings later.</div>
           </div>
           <button className="btn sm" onClick={() => copyToClipboard(resultsUrl).then(() => showToast("Results link copied"))}>
             Copy link
           </button>
-          <a className="btn sm" href="#/auth/signup" style={{ textDecoration: "none" }}>Create account →</a>
+          <a className="btn sm" href="#/auth" style={{ textDecoration: "none" }}>Create account →</a>
         </div>
       )}
 
+      {/* Share your results */}
       <div className="share-card" style={{ marginBottom: 18 }}>
         <div className="share-head">
           <div>
-            <div style={{ fontWeight: 500 }}>Share this list</div>
-            <div className="hint">Friends can rank it and you&rsquo;ll see results side by side.</div>
+            <div style={{ fontWeight: 500 }}>Share your results</div>
+            <div className="hint">Let others see your ranking and challenge you.</div>
           </div>
-          <button className="btn primary" onClick={nativeShare}>
+          <button className="btn primary" onClick={nativeShareResults}>
             <ShareIcon /> Share
+          </button>
+        </div>
+        <div className="share-row">
+          <span className="hint" style={{ width: 38 }}>Link</span>
+          <span className="code" title={resultsUrl}>{resultsUrl}</span>
+          <button className="btn sm" onClick={() => copyToClipboard(resultsUrl).then(() => showToast("Results link copied"))}>Copy</button>
+        </div>
+      </div>
+
+      {/* Share the list for others to rank */}
+      <div className="share-card" style={{ marginBottom: 18 }}>
+        <div className="share-head">
+          <div>
+            <div style={{ fontWeight: 500 }}>Invite others to rank</div>
+            <div className="hint">Share the list so friends can do their own ranking.</div>
+          </div>
+          <button className="btn" onClick={nativeShareList}>
+            <ShareIcon /> Share list
           </button>
         </div>
         <div className="share-row">
@@ -1148,29 +1202,18 @@ function ResultsScreen({ store, setStore, currentUser, rankerId, tab, showToast 
           <span className="code" title={shareUrl}>{shareUrl}</span>
           <button className="btn sm" onClick={() => copyToClipboard(shareUrl).then(() => showToast("Link copied"))}>Copy</button>
         </div>
-        <div className="share-row">
-          <span className="hint" style={{ width: 38 }}>Code</span>
-          <span className="code">{shareCode}</span>
-          <button className="btn sm" onClick={() => copyToClipboard(shareCode).then(() => showToast("Code copied"))}>Copy</button>
-        </div>
         {list.ownerId === currentUser.id && (
           <div className="share-row" style={{ paddingTop: 4 }}>
             <span className="hint" style={{ width: 38 }}>Privacy</span>
             <div className="seg" role="radiogroup" aria-label="Visibility" style={{ flex: 1 }}>
               <button type="button" role="radio" aria-checked={!list.isPublic}
                       className={`seg-opt ${!list.isPublic ? "on" : ""}`}
-                      onClick={() => {
-                        setStore(s => ({ ...s, lists: { ...s.lists, [list.id]: { ...s.lists[list.id], isPublic: false } } }));
-                        showToast("List is now private");
-                      }}>
+                      onClick={() => { setStore(s => ({ ...s, lists: { ...s.lists, [list.id]: { ...s.lists[list.id], isPublic: false } } })); showToast("List is now private"); }}>
                 <LockIcon /> Private
               </button>
               <button type="button" role="radio" aria-checked={!!list.isPublic}
                       className={`seg-opt ${list.isPublic ? "on" : ""}`}
-                      onClick={() => {
-                        setStore(s => ({ ...s, lists: { ...s.lists, [list.id]: { ...s.lists[list.id], isPublic: true } } }));
-                        showToast("List is now public");
-                      }}>
+                      onClick={() => { setStore(s => ({ ...s, lists: { ...s.lists, [list.id]: { ...s.lists[list.id], isPublic: true } } })); showToast("List is now public"); }}>
                 <GlobeIcon /> Public
               </button>
             </div>
