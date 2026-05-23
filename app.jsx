@@ -91,8 +91,10 @@ function App() {
       if (event === "SIGNED_IN" && session) {
         // Ignore the SIGNED_IN event that fires right after an explicit sign-out
         if (signingOutRef.current) return;
-        await loadUserIntoStore(session.user);
+        // Navigate immediately — don't wait for the DB load, the home screen
+        // route refresh will populate data while the user is already looking at it.
         if (mounted) navigate("/");
+        loadUserIntoStore(session.user); // intentionally not awaited
       }
 
       if (event === "SIGNED_OUT") {
