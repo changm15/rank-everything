@@ -293,34 +293,39 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
   const [code, setCode] = useState(initialCode || "");
   const [displayName, setDisplayName] = useState(currentUser?.displayName || "");
   const [err, setErr] = useState("");
-  const [fetchedList, setFetchedList] = useState(null);
-  const [fetching, setFetching] = useState(false);
 
   const preview = useMemo(() => {
     if (!code.trim()) return null;
     return decodeShare(code.trim());
   }, [code]);
 
-  const localList = preview && store.lists[preview.listId];
-  const list = localList || fetchedList;
+  // Build the list from the share code directly (items are embedded in the code).
+  // Fall back to the local store in case of an old-format code without items.
+  const list = useMemo(() => {
+    if (!preview) return null;
+    // Prefer local store (has any updates the owner made since sharing)
+    if (store.lists[preview.listId]) return store.lists[preview.listId];
+    // New-format codes embed items directly — no DB fetch needed, works for
+    // private lists and unauthenticated guests alike.
+    if (preview.items && preview.items.length > 0) {
+      return {
+        id: preview.listId,
+        name: preview.listName,
+        items: preview.items,
+        isPublic: false,
+        ownerId: null,
+        createdAt: Date.now(),
+      };
+    }
+    return null;
+  }, [preview, store.lists]);
 
-  // Fetch the list from Supabase when it's not in the local store
+  // Merge the decoded list into the store so the RankingScreen can find it later.
   useEffect(() => {
-    if (!preview || localList) { setFetchedList(null); return; }
-    let cancelled = false;
-    setFetching(true);
-    setFetchedList(null);
-    dbGetListById(preview.listId).then(({ data, error }) => {
-      if (cancelled) return;
-      setFetching(false);
-      if (error || !data) return;
-      const converted = rowToList(data);
-      setFetchedList(converted);
-      // Merge into store so the ranking screen can find it too
-      setStore(s => ({ ...s, lists: { ...s.lists, [converted.id]: converted } }));
-    });
-    return () => { cancelled = true; };
-  }, [preview?.listId, !!localList]);
+    if (list && !store.lists[list.id]) {
+      setStore(s => ({ ...s, lists: { ...s.lists, [list.id]: list } }));
+    }
+  }, [list?.id]);
 
   function submit(e) {
     e.preventDefault();
@@ -328,9 +333,15 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
     if (!preview) { setErr("That code doesn't look right."); return; }
     if (!displayName.trim()) { setErr("Add a display name."); return; }
     if (!list) {
-      setErr("List not found. Check that the share link is correct.");
+      setErr("Couldn't read that share code. Make sure you copied the full code.");
       return;
     }
+    // Ensure the list is in the store before navigating
+    const ensuredStore = store.lists[list.id]
+      ? null
+      : { lists: { ...store.lists, [list.id]: list } };
+    if (ensuredStore) setStore(s => ({ ...s, ...ensuredStore }));
+
     const ranker = {
       id: uid("rk"),
       listId: list.id,
@@ -343,6 +354,7 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
     };
     setStore(s => ({
       ...s,
+      lists: { ...s.lists, [list.id]: list },
       rankers: { ...s.rankers, [ranker.id]: ranker },
       lastRanker: { ...s.lastRanker, [lastRankerKey(currentUser.id, list.id)]: ranker.id },
     }));
@@ -363,9 +375,8 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
             <label className="label" htmlFor="code">Share code</label>
             <input id="code" className="input mono" placeholder="paste code here"
                    value={code} onChange={e => setCode(e.target.value)} autoFocus />
-            {preview && fetching && <div className="hint">Looking up list…</div>}
-            {preview && list && <div className="hint">Found list: <strong>{list.name}</strong> · {list.items.length} items</div>}
-            {preview && !list && !fetching && <div className="hint err">Couldn&rsquo;t find that list. Check the share link and try again.</div>}
+            {preview && list && <div className="hint">Found: <strong>{list.name}</strong> · {list.items.length} items</div>}
+            {preview && !list && <div className="hint err">Couldn&rsquo;t read that code. Try copying it again.</div>}
           </div>
           <div className="field">
             <label className="label" htmlFor="dn">Your display name</label>
@@ -375,7 +386,7 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
           {err && <div className="hint err">{err}</div>}
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button type="button" className="btn ghost" onClick={() => navigate("/")}>Cancel</button>
-            <button type="submit" className="btn primary" disabled={fetching || (preview && !list)}>Start ranking →</button>
+            <button type="submit" className="btn primary" disabled={preview && !list}>Start ranking →</button>
           </div>
         </div>
       </form>

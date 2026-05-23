@@ -91,9 +91,10 @@ function createGuest() {
 }
 
 /* ---------- Share codes ---------- */
-// base64url-encoded JSON { listId, listName }
+// base64url-encoded JSON { listId, listName, items }
+// Items are embedded so the link is self-contained — no DB fetch, no auth, no RLS issues.
 function encodeShare(list) {
-  const payload = JSON.stringify({ listId: list.id, listName: list.name });
+  const payload = JSON.stringify({ listId: list.id, listName: list.name, items: list.items || [] });
   const b64 = btoa(unescape(encodeURIComponent(payload)));
   return b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
@@ -104,7 +105,7 @@ function decodeShare(code) {
     const json = decodeURIComponent(escape(atob(s)));
     const parsed = JSON.parse(json);
     if (!parsed.listId) return null;
-    return parsed;
+    return parsed; // { listId, listName, items[] }
   } catch (e) { return null; }
 }
 
