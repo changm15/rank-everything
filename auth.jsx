@@ -7,9 +7,11 @@ function AuthScreen({ store, setStore, mode, onSessionLoaded }) {
   const [tab, setTab] = useStateA(mode === "signup" ? "signup" : "signin");
   const [email, setEmail] = useStateA("");
   const [pwd, setPwd] = useStateA("");
-  const [name, setName] = useStateA("");
+  const [accountName, setAccountName] = useStateA("");
+  const [guestName, setGuestName] = useStateA("");
   const [err, setErr] = useStateA("");
   const [loading, setLoading] = useStateA(false);
+  const [showAccount, setShowAccount] = useStateA(false);
 
   async function onSignin(e) {
     e.preventDefault();
@@ -17,35 +19,33 @@ function AuthScreen({ store, setStore, mode, onSessionLoaded }) {
     const { data, error } = await dbSignIn(email, pwd);
     setLoading(false);
     if (error) { setErr(error.message); return; }
-    // Session change is picked up by onAuthStateChange in app.jsx — no need to setStore here.
   }
 
   async function onSignup(e) {
     e.preventDefault();
     setErr(""); setLoading(true);
-    const { data, error } = await dbSignUp(email, pwd, name || email.split("@")[0]);
+    const { data, error } = await dbSignUp(email, pwd, accountName || email.split("@")[0]);
     setLoading(false);
     if (error) { setErr(error.message); return; }
-    // Supabase may require email confirmation depending on project settings.
-    // If email confirmation is disabled, the session fires immediately.
     if (data?.session) {
-      // Logged in immediately — onAuthStateChange handles navigation.
+      // logged in immediately — onAuthStateChange handles it
     } else {
       setErr("Check your email to confirm your account, then sign in.");
       setTab("signin");
     }
   }
 
-  // Guest mode: local-only session (no Supabase)
+  // Guest mode — name is captured so their ranking shows up properly in results
   function onGuest() {
-    const guest = createGuest();
+    const trimmed = guestName.trim();
+    if (!trimmed) { document.getElementById("g-name")?.focus(); return; }
+    const guest = { ...createGuest(), displayName: trimmed };
     const next = seedForUser(
       { ...store, users: { ...store.users, [guest.id]: guest }, currentUserId: guest.id },
       guest.id,
     );
     setStore(next);
-    // Don't navigate — let the app re-render on the current route so share links
-    // land on the right page. If already on /auth the bounce effect sends to /.
+    // Don't navigate — re-render on current route so share links land correctly.
   }
 
   return (
@@ -55,66 +55,86 @@ function AuthScreen({ store, setStore, mode, onSessionLoaded }) {
           <span className="brand-mark">R</span>
           <div>
             <div style={{ fontWeight: 500, fontSize: 18, letterSpacing: "-0.01em" }}>RankEverything</div>
-            <div className="hint" style={{ marginTop: 2 }}>Finally figure out what you actually think.</div>
+            <div className="hint" style={{ marginTop: 2 }}>Finally settle what you actually think.</div>
           </div>
         </div>
 
-        <div className="auth-tabs">
-          <button className={`auth-tab ${tab === "signin" ? "active" : ""}`}
-                  onClick={() => { setTab("signin"); setErr(""); }}>Sign in</button>
-          <button className={`auth-tab ${tab === "signup" ? "active" : ""}`}
-                  onClick={() => { setTab("signup"); setErr(""); }}>Create account</button>
+        {/* ── Guest — primary path, no account needed ── */}
+        <div className="stack" style={{ gap: 10 }}>
+          <div className="field">
+            <label className="label" htmlFor="g-name">Your name</label>
+            <input id="g-name" className="input" placeholder="e.g. Alex" autoFocus
+                   value={guestName} onChange={e => setGuestName(e.target.value)}
+                   onKeyDown={e => { if (e.key === "Enter") onGuest(); }} />
+          </div>
+          <button className="btn primary" onClick={onGuest}>Start ranking →</button>
+          <div className="hint" style={{ textAlign: "center" }}>No account needed. Your rankings are saved on this device.</div>
         </div>
 
-        {tab === "signin" ? (
-          <form className="stack" style={{ gap: 14 }} onSubmit={onSignin}>
-            <div className="field">
-              <label className="label" htmlFor="ai-email">Email</label>
-              <input id="ai-email" className="input" type="email" autoComplete="email"
-                     value={email} onChange={e => setEmail(e.target.value)} required />
+        {/* ── Account — for saving to profile ── */}
+        <div className="auth-divider">
+          <button className="hint" style={{ background: "none", border: "none", cursor: "pointer", textDecoration: "underline", color: "inherit" }}
+                  onClick={() => setShowAccount(a => !a)}>
+            {showAccount ? "hide" : "have an account? sign in"}
+          </button>
+        </div>
+
+        {showAccount && (
+          <>
+            <div className="auth-tabs">
+              <button className={`auth-tab ${tab === "signin" ? "active" : ""}`}
+                      onClick={() => { setTab("signin"); setErr(""); }}>Sign in</button>
+              <button className={`auth-tab ${tab === "signup" ? "active" : ""}`}
+                      onClick={() => { setTab("signup"); setErr(""); }}>Create account</button>
             </div>
-            <div className="field">
-              <label className="label" htmlFor="ai-pwd">Password</label>
-              <input id="ai-pwd" className="input" type="password" autoComplete="current-password"
-                     value={pwd} onChange={e => setPwd(e.target.value)} required />
+
+            {tab === "signin" ? (
+              <form className="stack" style={{ gap: 14 }} onSubmit={onSignin}>
+                <div className="field">
+                  <label className="label" htmlFor="ai-email">Email</label>
+                  <input id="ai-email" className="input" type="email" autoComplete="email"
+                         value={email} onChange={e => setEmail(e.target.value)} required />
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="ai-pwd">Password</label>
+                  <input id="ai-pwd" className="input" type="password" autoComplete="current-password"
+                         value={pwd} onChange={e => setPwd(e.target.value)} required />
+                </div>
+                {err && <div className="hint err">{err}</div>}
+                <button type="submit" className="btn" disabled={loading}>
+                  {loading ? "Signing in…" : "Sign in"}
+                </button>
+              </form>
+            ) : (
+              <form className="stack" style={{ gap: 14 }} onSubmit={onSignup}>
+                <div className="field">
+                  <label className="label" htmlFor="au-name">Display name</label>
+                  <input id="au-name" className="input" placeholder="e.g. Alex"
+                         value={accountName} onChange={e => setAccountName(e.target.value)} />
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="au-email">Email</label>
+                  <input id="au-email" className="input" type="email" autoComplete="email"
+                         value={email} onChange={e => setEmail(e.target.value)} required />
+                </div>
+                <div className="field">
+                  <label className="label" htmlFor="au-pwd">Password</label>
+                  <input id="au-pwd" className="input" type="password" autoComplete="new-password"
+                         value={pwd} onChange={e => setPwd(e.target.value)} required minLength={6} />
+                  <div className="hint">6+ characters.</div>
+                </div>
+                {err && <div className="hint err">{err}</div>}
+                <button type="submit" className="btn" disabled={loading}>
+                  {loading ? "Creating account…" : "Create account"}
+                </button>
+              </form>
+            )}
+
+            <div className="auth-note hint">
+              An account saves all your rankings to a profile so you can access them from any device and compare with friends.
             </div>
-            {err && <div className="hint err">{err}</div>}
-            <button type="submit" className="btn primary" disabled={loading}>
-              {loading ? "Signing in…" : "Sign in"}
-            </button>
-          </form>
-        ) : (
-          <form className="stack" style={{ gap: 14 }} onSubmit={onSignup}>
-            <div className="field">
-              <label className="label" htmlFor="au-name">Display name</label>
-              <input id="au-name" className="input" placeholder="e.g. Alex"
-                     value={name} onChange={e => setName(e.target.value)} />
-            </div>
-            <div className="field">
-              <label className="label" htmlFor="au-email">Email</label>
-              <input id="au-email" className="input" type="email" autoComplete="email"
-                     value={email} onChange={e => setEmail(e.target.value)} required />
-            </div>
-            <div className="field">
-              <label className="label" htmlFor="au-pwd">Password</label>
-              <input id="au-pwd" className="input" type="password" autoComplete="new-password"
-                     value={pwd} onChange={e => setPwd(e.target.value)} required minLength={6} />
-              <div className="hint">6+ characters.</div>
-            </div>
-            {err && <div className="hint err">{err}</div>}
-            <button type="submit" className="btn primary" disabled={loading}>
-              {loading ? "Creating account…" : "Create account"}
-            </button>
-          </form>
+          </>
         )}
-
-        <div className="auth-divider"><span>or</span></div>
-        <button className="btn" onClick={onGuest}>Continue as guest</button>
-
-        <div className="auth-note hint">
-          <strong>Signed-in accounts</strong> save your opinions and let you compare with friends across any device.
-          Guest sessions are stored on this device only.
-        </div>
       </div>
     </div>
   );
