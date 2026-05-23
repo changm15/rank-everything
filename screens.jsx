@@ -293,13 +293,34 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
   const [code, setCode] = useState(initialCode || "");
   const [displayName, setDisplayName] = useState(currentUser?.displayName || "");
   const [err, setErr] = useState("");
+  const [fetchedList, setFetchedList] = useState(null);
+  const [fetching, setFetching] = useState(false);
 
   const preview = useMemo(() => {
     if (!code.trim()) return null;
     return decodeShare(code.trim());
   }, [code]);
 
-  const list = preview && store.lists[preview.listId];
+  const localList = preview && store.lists[preview.listId];
+  const list = localList || fetchedList;
+
+  // Fetch the list from Supabase when it's not in the local store
+  useEffect(() => {
+    if (!preview || localList) { setFetchedList(null); return; }
+    let cancelled = false;
+    setFetching(true);
+    setFetchedList(null);
+    dbGetListById(preview.listId).then(({ data, error }) => {
+      if (cancelled) return;
+      setFetching(false);
+      if (error || !data) return;
+      const converted = rowToList(data);
+      setFetchedList(converted);
+      // Merge into store so the ranking screen can find it too
+      setStore(s => ({ ...s, lists: { ...s.lists, [converted.id]: converted } }));
+    });
+    return () => { cancelled = true; };
+  }, [preview?.listId, !!localList]);
 
   function submit(e) {
     e.preventDefault();
@@ -307,7 +328,7 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
     if (!preview) { setErr("That code doesn't look right."); return; }
     if (!displayName.trim()) { setErr("Add a display name."); return; }
     if (!list) {
-      setErr("List not found on this device. Open it on the device that created it first, or paste the full link.");
+      setErr("List not found. Check that the share link is correct.");
       return;
     }
     const ranker = {
@@ -342,8 +363,9 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
             <label className="label" htmlFor="code">Share code</label>
             <input id="code" className="input mono" placeholder="paste code here"
                    value={code} onChange={e => setCode(e.target.value)} autoFocus />
+            {preview && fetching && <div className="hint">Looking up list…</div>}
             {preview && list && <div className="hint">Found list: <strong>{list.name}</strong> · {list.items.length} items</div>}
-            {preview && !list && <div className="hint err">List ID <span className="mono">{preview.listId}</span> isn&rsquo;t on this device.</div>}
+            {preview && !list && !fetching && <div className="hint err">Couldn&rsquo;t find that list. Check the share link and try again.</div>}
           </div>
           <div className="field">
             <label className="label" htmlFor="dn">Your display name</label>
@@ -353,7 +375,7 @@ function JoinScreen({ store, setStore, currentUser, initialCode }) {
           {err && <div className="hint err">{err}</div>}
           <div className="row" style={{ justifyContent: "flex-end" }}>
             <button type="button" className="btn ghost" onClick={() => navigate("/")}>Cancel</button>
-            <button type="submit" className="btn primary">Start ranking →</button>
+            <button type="submit" className="btn primary" disabled={fetching || (preview && !list)}>Start ranking →</button>
           </div>
         </div>
       </form>

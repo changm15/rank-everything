@@ -264,24 +264,20 @@ function App() {
 
   const currentUser = store.currentUserId ? store.users[store.currentUserId] : null;
 
-  // Stash pending join code for unauthenticated share links
+  // Auto-create a guest session when someone follows a share link without an account.
+  // Their rankings are saved to localStorage — no sign-up needed.
   useEffect(() => {
-    if (!currentUser && route.name === "join" && route.code) {
-      try { sessionStorage.setItem("pendingJoinCode", route.code); } catch (_) {}
+    if (appLoading) return;
+    if (currentUser) return;
+    if (route.name === "join" && route.code) {
+      const guest = createGuest();
+      setStoreState(s => ({
+        ...s,
+        users: { ...s.users, [guest.id]: guest },
+        currentUserId: guest.id,
+      }));
     }
-  }, [currentUser, route.name, route.code]);
-
-  // After auth, route to any pending join code
-  useEffect(() => {
-    if (!currentUser) return;
-    try {
-      const pending = sessionStorage.getItem("pendingJoinCode");
-      if (pending && route.name === "home") {
-        sessionStorage.removeItem("pendingJoinCode");
-        navigate(`/join/${pending}`);
-      }
-    } catch (_) {}
-  }, [currentUser, route.name]);
+  }, [appLoading, route.name, route.code, currentUser]);
 
   // Bounce authenticated users away from /auth
   useEffect(() => {
