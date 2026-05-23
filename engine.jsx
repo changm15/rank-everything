@@ -261,6 +261,9 @@ function parseRoute() {
   if (parts[0] === "view" && parts[1]) return { name: "view", code: parts[1] };
   if (parts[0] === "rank" && parts[1]) return { name: "rank", rankerId: parts[1] };
   if (parts[0] === "results" && parts[1]) return { name: "results", rankerId: parts[1], tab: parts[2] || "rankings" };
+  if (parts[0] === "friends") return { name: "friends" };
+  if (parts[0] === "profile" && parts[1]) return { name: "profile", profileUserId: parts[1] };
+  if (parts[0] === "profile") return { name: "profile", profileUserId: null };
   return { name: "home" };
 }
 function navigate(path) {

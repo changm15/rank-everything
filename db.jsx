@@ -232,6 +232,93 @@ async function dbLoadUserStore(supabaseUser) {
   };
 }
 
+/* ─────────────────────────── Friends ─────────────────────────── */
+
+async function dbGetFriends(userId) {
+  const { data, error } = await _sb
+    .from("friendships")
+    .select("*, requester:profiles!requester_id(*), addressee:profiles!addressee_id(*)")
+    .eq("status", "accepted")
+    .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
+  return { data: data || [], error };
+}
+
+async function dbGetFriendRequests(userId) {
+  const { data, error } = await _sb
+    .from("friendships")
+    .select("*, requester:profiles!requester_id(*), addressee:profiles!addressee_id(*)")
+    .eq("status", "pending")
+    .or(`requester_id.eq.${userId},addressee_id.eq.${userId}`);
+  return { data: data || [], error };
+}
+
+async function dbGetFriendshipBetween(userId, targetId) {
+  const { data, error } = await _sb
+    .from("friendships")
+    .select("*")
+    .or(`and(requester_id.eq.${userId},addressee_id.eq.${targetId}),and(requester_id.eq.${targetId},addressee_id.eq.${userId})`)
+    .maybeSingle();
+  return { data, error };
+}
+
+async function dbSendFriendRequest(requesterId, addresseeId) {
+  const { data, error } = await _sb
+    .from("friendships")
+    .insert({ requester_id: requesterId, addressee_id: addresseeId })
+    .select().single();
+  return { data, error };
+}
+
+async function dbAcceptFriendRequest(friendshipId) {
+  const { data, error } = await _sb
+    .from("friendships")
+    .update({ status: "accepted" })
+    .eq("id", friendshipId)
+    .select().single();
+  return { data, error };
+}
+
+async function dbRemoveFriendship(friendshipId) {
+  return _sb.from("friendships").delete().eq("id", friendshipId);
+}
+
+async function dbSearchUsers(query, currentUserId) {
+  const { data, error } = await _sb
+    .from("profiles")
+    .select("*")
+    .ilike("display_name", `%${query}%`)
+    .neq("id", currentUserId)
+    .limit(8);
+  return { data: data || [], error };
+}
+
+async function dbGetUserProfile(userId) {
+  const { data, error } = await _sb
+    .from("profiles")
+    .select("*")
+    .eq("id", userId)
+    .single();
+  return { data, error };
+}
+
+async function dbGetUserPublicLists(userId) {
+  const { data, error } = await _sb
+    .from("lists")
+    .select("*")
+    .eq("owner_id", userId)
+    .eq("is_public", true)
+    .order("created_at", { ascending: false });
+  return { data: data || [], error };
+}
+
+async function dbGetUserRankerCount(userId) {
+  const { count } = await _sb
+    .from("rankers")
+    .select("id", { count: "exact", head: true })
+    .eq("owner_id", userId);
+  return count || 0;
+}
+
 Object.assign(window, {
   _sb,
   dbSignUp, dbSignIn, dbSignOut, dbGetSession, dbOnAuthChange,
@@ -240,4 +327,7 @@ Object.assign(window, {
   dbGetSavedListIds, dbSaveList, dbUnsaveList,
   dbLoadUserStore,
   rowToList, rowToRanker,
+  dbGetFriends, dbGetFriendRequests, dbGetFriendshipBetween,
+  dbSendFriendRequest, dbAcceptFriendRequest, dbRemoveFriendship,
+  dbSearchUsers, dbGetUserProfile, dbGetUserPublicLists, dbGetUserRankerCount,
 });

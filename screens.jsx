@@ -865,7 +865,23 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
             ? <>{totalPairs}/{totalPairs} <span style={{ color: "var(--gold-fg)" }}>+{bonusCount}</span></>
             : <>{completedPicks}/{totalPairs}</>}
         </span>
-        <div className="progress-bar"><div className="progress-fill" style={{ width: `${Math.min(100, pct)}%` }} /></div>
+        <div className="progress-bar">
+          <div className="progress-fill" style={{ width: `${Math.min(100, pct)}%` }} />
+          {!inBonus && (() => {
+            const thresholdPct = Math.min(98, (minPicks / totalPairs) * 100);
+            return (
+              <div
+                className="progress-threshold"
+                style={{ left: `${thresholdPct}%` }}
+                title={`${minPicks} matchups minimum to unlock results`}
+              >
+                {!showResultsReady && (
+                  <div className="progress-threshold-label">min</div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
         <span className="mono">{inBonus ? "100%+" : `${pct}%`}</span>
       </div>
 
