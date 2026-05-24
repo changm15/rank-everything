@@ -1031,6 +1031,8 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
   const [queue, setQueue] = useState(() => buildQueue(list, ranker));
   const [cursor, setCursor] = useState(0);
   const milestoneShownRef = useRef(false);
+  // Name prompt for nameless guests (must be declared before any early return)
+  const [guestNameInput, setGuestNameInput] = useState("");
 
   // Re-init when switching to a different ranker.
   useEffect(() => {
@@ -1043,6 +1045,54 @@ function RankingScreen({ store, setStore, currentUser, rankerId, showToast }) {
   if (!list || !ranker) {
     return <div className="container page"><div className="empty">Ranker not found.</div></div>;
   }
+
+  // ── Guest name gate ───────────────────────────────────────────────────────
+  // Guests who arrive via explore/join/share without going through the auth
+  // screen may have the default "Guest" display name. Require a real name so
+  // their ranking is identifiable in the compare tab.
+  const needsName = currentUser.isGuest &&
+    (!currentUser.displayName || currentUser.displayName === "Guest");
+
+  function submitGuestName(e) {
+    e.preventDefault();
+    const name = guestNameInput.trim();
+    if (!name) return;
+    // Update display name on the user AND the ranker already created for them
+    setStore(s => ({
+      ...s,
+      users: { ...s.users, [currentUser.id]: { ...s.users[currentUser.id], displayName: name } },
+      rankers: { ...s.rankers, [ranker.id]: { ...s.rankers[ranker.id], name } },
+    }));
+  }
+
+  if (needsName) {
+    return (
+      <div className="container page rank-page" data-screen-label="03 Ranking (name gate)">
+        <div className="page-head">
+          <div className="crumb"><a href="#/" style={{ textDecoration: "none" }}>← Lists</a> / Ranking</div>
+          <h1>{list.name}</h1>
+          <p className="lede">One quick thing before you start ranking.</p>
+        </div>
+        <div className="card" style={{ maxWidth: 400 }}>
+          <div style={{ fontWeight: 500, marginBottom: 6 }}>What's your name?</div>
+          <div className="hint" style={{ marginBottom: 14 }}>
+            Your name shows up next to your ranking so others can see who voted what.
+          </div>
+          <form onSubmit={submitGuestName}>
+            <div className="field" style={{ marginBottom: 12 }}>
+              <input className="input" placeholder="e.g. Alex" autoFocus
+                     value={guestNameInput} onChange={e => setGuestNameInput(e.target.value)} />
+            </div>
+            <button type="submit" className="btn primary" style={{ width: "100%" }}
+                    disabled={!guestNameInput.trim()}>
+              Start ranking →
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+  // ─────────────────────────────────────────────────────────────────────────
 
   const totalPairs = ranker.totalPairs || allPairs(list.items).length;
   const completedPicks = ranker.picks.length;
@@ -1693,7 +1743,14 @@ function CompareTab({ list, myRankerId, allRankers }) {
   function selectAll() { setSelected(new Set(allRankers.map(r => r.id))); }
   function selectOnlyMe() { setSelected(new Set([myRankerId])); }
 
-  const combinedLabel = selectedRankers.map(r => r.id === myRankerId ? "you" : r.name).join(" + ");
+  // Label helper — guest rankers have ownerId=null in the DB
+  function rankerLabel(r, forCombined = false) {
+    if (r.id === myRankerId) return forCombined ? "you" : `${r.name} (you)`;
+    if (r.ownerId === null) return `${r.name} (guest)`;
+    return r.name;
+  }
+
+  const combinedLabel = selectedRankers.map(r => rankerLabel(r, true)).join(" + ");
   const combinedTotalPicks = selectedRankers.reduce((n, r) => n + r.picks.length, 0);
 
   // The combined column drives diff highlighting when shown; otherwise fall back to "me"
@@ -1719,7 +1776,7 @@ function CompareTab({ list, myRankerId, allRankers }) {
                 aria-pressed={on}
               >
                 <span className="chip-check" aria-hidden="true">{on ? "✓" : ""}</span>
-                {r.id === myRankerId ? "You" : r.name}
+                {r.id === myRankerId ? "You" : r.ownerId === null ? `${r.name} (guest)` : r.name}
               </button>
             );
           })}
@@ -1762,7 +1819,7 @@ function CompareTab({ list, myRankerId, allRankers }) {
             <div key={r.id} className={`compare-col ${isMuted ? "muted" : ""}`}>
               <div className="head">
                 <div className="nm">
-                  {r.name}{r.id === myRankerId ? " (you)" : ""}
+                  {rankerLabel(r)}
                   {isMuted && <span className="hint" style={{ marginLeft: 6 }}>excluded</span>}
                 </div>
                 <div className="sub">{r.picks.length} matchups · {formatRelTime(r.updatedAt)}</div>
