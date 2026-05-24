@@ -440,7 +440,7 @@ function ThemedShell({ store, toggleTheme, currentUser, setStore, onSignOut, chi
               </a>
             )}
             {currentUser && !currentUser.isGuest && (
-              <a className="icon-btn" href="#/friends" aria-label="Friends" title="Friends">
+              <a className="icon-btn nav-hide-mobile" href="#/friends" aria-label="Friends" title="Friends">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
                   <circle cx="9" cy="7" r="4"/>
@@ -450,7 +450,7 @@ function ThemedShell({ store, toggleTheme, currentUser, setStore, onSignOut, chi
               </a>
             )}
             {currentUser && !currentUser.isGuest && (
-              <a className="icon-btn" href="#/profile" aria-label="My profile" title="My profile">
+              <a className="icon-btn nav-hide-mobile" href="#/profile" aria-label="My profile" title="My profile">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
                   <circle cx="12" cy="8" r="4"/>
                   <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>

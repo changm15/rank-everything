@@ -168,6 +168,23 @@ function UserMenu({ user, store, setStore, onSignOut }) {
             <div className="menu-name">{user.displayName}</div>
             <div className="menu-sub mono">{user.isGuest ? "guest session" : user.email}</div>
           </div>
+          {!user.isGuest && (
+            <a className="menu-item" role="menuitem" href="#/profile" style={{ textDecoration: "none" }} onClick={() => setOpen(false)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/>
+              </svg>
+              My profile
+            </a>
+          )}
+          {!user.isGuest && (
+            <a className="menu-item" role="menuitem" href="#/friends" style={{ textDecoration: "none" }} onClick={() => setOpen(false)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+              </svg>
+              Friends
+            </a>
+          )}
           <button className="menu-item" role="menuitem" onClick={() => { setOpen(false); onSignOut(); }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
               <path d="M10 11l3-3-3-3M13 8H6M9 13H4a1 1 0 01-1-1V4a1 1 0 011-1h5"/>

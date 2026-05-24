@@ -1078,3 +1078,47 @@ html[data-theme="dark"] .compare-col li.diff-down { background: rgba(248, 113, 1
 .compare-grid::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
 .bracket-wrap::-webkit-scrollbar-thumb:hover,
 .compare-grid::-webkit-scrollbar-thumb:hover { background: var(--border-strong); }
+
+/* ─── Mobile spacing (≤ 600 px) ─────────────────────────────────────── */
+@media (max-width: 600px) {
+  /* Typography */
+  h1 { font-size: 22px; }
+  .page-head .lede { font-size: 13px; }
+
+  /* Page rhythm */
+  .page { padding-top: 16px; padding-bottom: 64px; }
+  .page-head { margin-bottom: 16px; }
+
+  /* Ranking screen — tighter gaps so everything fits without scrolling */
+  .rank-page { gap: 16px; padding-top: 6px; }
+
+  /* Cards — less wasted internal padding */
+  .card { padding: 16px; }
+  .share-card { padding: 12px 14px; }
+  .list-row { padding: 12px 14px; }
+  .explore-row { padding: 12px 14px; }
+  .rank-item { padding: 10px 12px; gap: 10px; }
+
+  /* Share-head CTA: stack vertically and go full-width */
+  .share-head { flex-direction: column; align-items: stretch; gap: 10px; }
+  .share-head > .btn { width: 100%; justify-content: center; }
+
+  /* Header icons — slightly smaller so 4 fit comfortably */
+  .icon-btn { width: 36px; height: 36px; }
+  .header-actions { gap: 2px; }
+
+  /* Hide friends & profile nav icons on mobile — still reachable via user menu */
+  .nav-hide-mobile { display: none; }
+
+  /* Auth card — tighter on small screens */
+  .auth-card { padding: 20px; }
+  .auth-wrap { padding: 20px 16px 60px; }
+}
+
+/* ─── Very small (≤ 380 px) ─────────────────────────────────────────── */
+@media (max-width: 380px) {
+  .container { padding: 0 14px; }
+  h1 { font-size: 20px; }
+  .rank-foot { flex-wrap: wrap; gap: 8px; }
+  .rank-foot .row { flex: 1; }
+}
